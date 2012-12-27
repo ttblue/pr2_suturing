@@ -215,7 +215,6 @@ class IKInterpolationPlanner(object):
         initTfm = np.eye(4)
         initOrigin = dir*rad*np.array([0,1,0])
         initTfm[0:3,3] = np.unwrap(initOrigin)
-        
         transforms = []
         
         for step in range(steps+1):
@@ -225,8 +224,9 @@ class IKInterpolationPlanner(object):
             rotMat[0,0] = np.cos(dir*ang)
             rotMat[0,1] = -np.sin(dir*ang)
             rotMat[1,0] = np.sin(dir*ang)
-            rotMat[1,1] = -np.cos(dir*ang)
+            rotMat[1,1] = np.cos(dir*ang)
             rotMat[0:3,3] = np.unwrap(-1*initOrigin)
+            print rotMat
             
             transforms.append(WorldFromEETfm*rotMat*initTfm)
             
