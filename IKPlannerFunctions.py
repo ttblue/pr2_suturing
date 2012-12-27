@@ -2,7 +2,6 @@ from brett2.PR2 import PR2
 import kinematics.kinematics_utils as ku
 
 import rospy
-import openravepy as orpy
 
 import numpy as np
 from numpy.linalg import norm
@@ -81,8 +80,9 @@ class IKInterpolationPlanner(object):
             
         trajectory = []
         
-        armIndices = self.arm.manip.GetJointIndices()
-        currJoints = self.pr2.robot.GetDOFValues(armIndices)
+        #armIndices = self.arm.manip.GetJointIndices()
+        #currJoints = self.pr2.robot.GetDOFValues(armIndices)
+        currJoints = self.arm.get_joint_positions()
         
         for transform in transforms:
             allJoints = self.arm.FindIKSolutions(transform, self.filter_options)
@@ -116,7 +116,7 @@ class IKInterpolationPlanner(object):
     """
     #Not sure about scale here. Treating everything as meters. 
     #I don't think I need to worry about scale here anyway
-    def goInDirection (self, dir, dist, steps):
+    def goInDirection (self, dir, dist, steps=10):
         
         initTransform = self.arm.manip.GenEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
@@ -166,7 +166,7 @@ class IKInterpolationPlanner(object):
     """
     #Not sure about scale here. Treating everything as meters. 
     #I don't think I need to worry about scale here anyway
-    def goInWorldDirection (self, dir, dist, steps):
+    def goInWorldDirection (self, dir, dist, steps=10):
         
         initTransform = self.arm.manip.GenEndEffectorTransform()
         baseTransform = self.pr2.robot.GetLink('base_link').GetTransform()
@@ -200,6 +200,7 @@ class IKInterpolationPlanner(object):
             transforms.append(newTfm)
             
         return self.smoothPlan(transforms)
+  
         
     """
     Moves the gripper in a circle.
@@ -209,7 +210,7 @@ class IKInterpolationPlanner(object):
     Final angle covered by circle                     -> finAng
     Number of points of linear interpolation of angle -> steps
     """
-    def circleAroundRadius (self, dir, rad, finAng, steps):
+    def circleAroundRadius (self, dir, rad, finAng, steps=10):
         
         WorldFromEETfm = self.arm.manip.GetEndEffectorTransform()
         
@@ -219,7 +220,7 @@ class IKInterpolationPlanner(object):
         
         transforms = []
         
-        for step in range(steps+1)
+        for step in range(steps+1):
             ang = float(finAng)*step/steps
             
             rotMat = np.eye(4)
