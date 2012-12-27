@@ -1,4 +1,4 @@
-from brett2.PR2 import PR2
+#from brett2.PR2 import Arm
 import kinematics.kinematics_utils as ku
 
 import rospy
@@ -12,12 +12,11 @@ Class which plans based on OpenRAVE's IK solver
 """
 class IKInterpolationPlanner(object):
     
-    def __init__(self, _pr2, _rl, _filter_options=0):
-        self.pr2 = _pr2
+    def __init__(self, _arm, _rl, _filter_options=0):
         self.rl = _rl
         #If useful
         self.rl_long = {'l':'left', 'r':'right'}[self.rl]
-        self.arm = {'l':self.pr2.larm, 'r':self.pr2.rarm}[self.rl]
+        self.arm = _arm
         self.filter_options = _filter_options
     
     
@@ -51,7 +50,7 @@ class IKInterpolationPlanner(object):
         trajectory = []
         
         for transform in transforms:
-            joints = self.arm.FindIKSolution(transform, self.filter_options)
+            joints = self.arm.manip.FindIKSolution(transform, self.filter_options)
             
             if joints is None:
                 rospy.logwarn('IK Failed on ' + self.rl_long + 'arm.') 
@@ -85,14 +84,13 @@ class IKInterpolationPlanner(object):
         currJoints = self.arm.get_joint_positions()
         
         for transform in transforms:
-            allJoints = self.arm.FindIKSolutions(transform, self.filter_options)
-            
-            if allJoints is None: 
+            allJoints = self.arm.manip.FindIKSolutions(transform, self.filter_options)
+
+            if not allJoints.size:
                 rospy.logwarn('IK Failed on ' + self.rl_long + 'arm.')
-                return allJoints
+                return None
             
             allJoints = [ku.closer_joint_angles(joints, currJoints) for joints in allJoints]
-            
             normDifferences = [norm(currJoints-joints,2) for joints in allJoints]
             minIndex = normDifferences.index(min(normDifferences))
             
@@ -118,21 +116,21 @@ class IKInterpolationPlanner(object):
     #I don't think I need to worry about scale here anyway
     def goInDirection (self, dir, dist, steps=10):
         
-        initTransform = self.arm.manip.GenEndEffectorTransform()
+        initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
         
         if    dir == 'f':
-            dirVec = initTransform[:,2]
+            dirVec = initTransform[0:3,2]
         elif  dir == 'b': 
-            dirVec = -1*initTransform[:,2]
+            dirVec = -1*initTransform[0:3,2]
         elif  dir == 'u':
-            dirVec = initTransform[:,1]
+            dirVec = initTransform[0:3,1]
         elif  dir == 'd':
-            dirVec = -1*initTransform[:,1]
+            dirVec = -1*initTransform[0:3,1]
         elif  dir == 'l':
-            dirVec = initTransform[:,0]
+            dirVec = initTransform[0:3,0]
         elif  dir == 'r':
-            dirVec = -1*initTransform[:,0]
+            dirVec = -1*initTransform[0:3,0]
         else:
             rospy.ERROR("Invalid direction: " + dir)
         
@@ -143,7 +141,7 @@ class IKInterpolationPlanner(object):
         for step in range(steps+1):
             currVec = initOrigin + float(step)/steps*endOffset
             
-            newTfm = tfm.copy()
+            newTfm = initTransform.copy()
             newTfm[0:3,3] = np.unwrap(currVec)
             
             transforms.append(newTfm)
@@ -168,22 +166,22 @@ class IKInterpolationPlanner(object):
     #I don't think I need to worry about scale here anyway
     def goInWorldDirection (self, dir, dist, steps=10):
         
-        initTransform = self.arm.manip.GenEndEffectorTransform()
-        baseTransform = self.pr2.robot.GetLink('base_link').GetTransform()
-        initOrigin = baseTransform[0:3,3]
+        initTransform = self.arm.manip.GetEndEffectorTransform()
+        initOrigin = initTransform[0:3,3]
+        baseTransform = self.arm.pr2.robot.GetLink('base_link').GetTransform()
         
         if    dir == 'u':
-            dirVec = initTransform[:,2]
+            dirVec = baseTransform[0:3,2]
         elif  dir == 'd': 
-            dirVec = -1*initTransform[:,2]
+            dirVec = -1*baseTransform[0:3,2]
         elif  dir == 'l':
-            dirVec = initTransform[:,1]
+            dirVec = baseTransform[0:3,1]
         elif  dir == 'r':
-            dirVec = -1*initTransform[:,1]
+            dirVec = -1*baseTransform[0:3,1]
         elif  dir == 'f':
-            dirVec = initTransform[:,0]
+            dirVec = baseTransform[0:3,0]
         elif  dir == 'b':
-            dirVec = -1*initTransform[:,0]
+            dirVec = -1*baseTransform[0:3,0]
         else:
             rospy.ERROR("Invalid direction: " + dir)
         
@@ -192,9 +190,9 @@ class IKInterpolationPlanner(object):
         transforms = []
         
         for step in range(steps+1):
-            currVec = initOrigin + endOffset*float(step)/steps
+            currVec = initOrigin + endOffset*(float(step)/steps)
             
-            newTfm = tfm.copy()
+            newTfm = initTransform.copy()
             newTfm[0:3,3] = np.unwrap(currVec)
             
             transforms.append(newTfm)

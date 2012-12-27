@@ -1,4 +1,4 @@
-from IKPlannerFunctions import import IKInterpolationPlanner
+from IKPlannerFunctions import IKInterpolationPlanner
 from brett2.PR2 import PR2, Arm, IKFail
 
 """
@@ -7,8 +7,8 @@ Planner class for the Arm.
 class PlannerArm(Arm):
 
     def __init__ (self, pr2, rl):
-        Arm.__init__(pr2, rl)
-        self.planner = IKInterpolationPlanner(self, self.rl)
+        Arm.__init__(self, pr2, rl)
+        self.planner = IKInterpolationPlanner(self, self.lr)
 
     """
     Moves the tool tip in the specified direction in the gripper frame.
@@ -27,8 +27,8 @@ class PlannerArm(Arm):
         self.pr2.update_rave()
         trajectory = self.planner.goInDirection(dir, dist,steps)
         
-        if trajectory is not None: 
-            self.follow_joint_trajectories (trajectory)
+        if trajectory: 
+            self.follow_joint_trajectory (trajectory)
         else: raise IKFail
 
     """
@@ -48,8 +48,8 @@ class PlannerArm(Arm):
         self.pr2.update_rave()
         trajectory = self.planner.goInWorldDirection(dir, dist,steps)
         
-        if trajectory is not None: 
-            self.follow_joint_trajectories (trajectory)
+        if trajectory: 
+            self.follow_joint_trajectory (trajectory)
         else: raise IKFail
         
     """
@@ -64,8 +64,8 @@ class PlannerArm(Arm):
         self.pr2.update_rave()
         trajectory = self.planner.circleAroundRadius (dir, rad, finAng)
 
-        if trajectory is not None: 
-            self.follow_joint_trajectories (trajectory)
+        if trajectory: 
+            self.follow_joint_trajectory (trajectory)
         else: raise IKFail
         
         
@@ -75,7 +75,7 @@ Planner class for PR2 with planning arms.
 class PlannerPR2 (PR2):
     
     def __init__ (self):
-        PR2.__init__()
+        PR2.__init__(self)
         self.rarm = PlannerArm(self,'r')
         self.larm = PlannerArm(self, 'l')
         
