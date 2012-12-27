@@ -192,7 +192,7 @@ class IKInterpolationPlanner(object):
         transforms = []
         
         for step in range(steps+1):
-            currVec = initOrigin + float(step)/steps*endOffset
+            currVec = initOrigin + endOffset*float(step)/steps
             
             newTfm = tfm.copy()
             newTfm[0:3,3] = np.unwrap(currVec)
@@ -211,29 +211,25 @@ class IKInterpolationPlanner(object):
     """
     def circleAroundRadius (self, dir, rad, finAng, steps):
         
-        initTransform = self.arm.manip.GetEndEffectorTransform()
+        WorldFromEETfm = self.arm.manip.GetEndEffectorTransform()
         
+        initTfm = np.eye(4)
+        initOrigin = dir*rad*np.array([0,1,0])
+        initTfm[0:3,3] = np.unwrap(initOrigin)
         
+        transforms = []
         
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
-        
+        for step in range(steps+1)
+            ang = float(finAng)*step/steps
+            
+            rotMat = np.eye(4)
+            rotMat[0,0] = np.cos(dir*ang)
+            rotMat[0,1] = -np.sin(dir*ang)
+            rotMat[1,0] = np.sin(dir*ang)
+            rotMat[1,1] = -np.cos(dir*ang)
+            rotMat[0:3,3] = np.unwrap(-1*initOrigin)
+            
+            transforms.append(WorldFromEETfm*rotMat*initTfm)
+            
+        return self.smoothPlan(transforms)
         
