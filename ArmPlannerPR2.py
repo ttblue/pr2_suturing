@@ -6,63 +6,66 @@ Planner class for the Arm.
 """
 class PlannerArm(Arm):
 
+
     def __init__ (self, pr2, rl):
         Arm.__init__(self, pr2, rl)
         self.planner = IKInterpolationPlanner(self, self.lr)
 
-    """
-    Moves the tool tip in the specified direction in the gripper frame.
-     
-    Direction of movement                    -> dir
-        f -> forward (along the tip of the gripper)
-        b -> backward
-        u -> up
-        d -> down
-        l -> left
-        r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
-    def goInDirection (self, dir, dist, steps=10):
+
+    def goInDirection (self, d, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the gripper frame.
+         
+        Direction of movement                    -> d
+            f -> forward (along the tip of the gripper)
+            b -> backward
+            u -> up
+            d -> down
+            l -> left
+            r -> right
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """
         self.pr2.update_rave()
-        trajectory = self.planner.goInDirection(dir, dist,steps)
+        trajectory = self.planner.goInDirection(d, dist,steps)
         
         if trajectory: 
             self.follow_joint_trajectory (trajectory)
         else: raise IKFail
 
-    """
-    Moves the tool tip in the specified direction in the base_link frame. 
-    
-    Direction of movement                    -> dir
-        f -> forward
-        b -> backward
-        u -> up
-        d -> down
-        l -> left
-        r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
-    def goInWorldDirection (self, dir, dist, steps=10):
+
+    def goInWorldDirection (self, d, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the base_link frame. 
+        
+        Direction of movement                    -> d
+            f -> forward
+            b -> backward
+            u -> up
+            d -> down
+            l -> left
+            r -> right
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """
         self.pr2.update_rave()
-        trajectory = self.planner.goInWorldDirection(dir, dist,steps)
+        trajectory = self.planner.goInWorldDirection(d, dist,steps)
         
         if trajectory: 
             self.follow_joint_trajectory (trajectory)
         else: raise IKFail
         
-    """
-    Moves the gripper in a circle.
-    
-    Direction of circle (either inner or outer)       -> dir
-    Radius of circle                                  -> rad
-    Final angle covered by circle                     -> finAng
-    Number of points of linear interpolation of angle -> steps
-    """
-    def circleAroundRadius (self, dir, rad, finAng, steps=10):
+    def circleAroundRadius (self, d, rad, finAng, steps=10, rviz=None):
+        """
+        Moves the gripper in a circle.
+        
+        Direction of circle (either inner or outer)       -> d
+        Radius of circle                                  -> rad
+        Final angle covered by circle                     -> finAng
+        Number of points of linear interpolation of angle -> steps
+        """
         self.pr2.update_rave()
-        trajectory = self.planner.circleAroundRadius (dir, rad, finAng)
+        trajectory = self.planner.circleAroundRadius(d, rad, finAng, rviz)
 
         if trajectory: 
             self.follow_joint_trajectory (trajectory)

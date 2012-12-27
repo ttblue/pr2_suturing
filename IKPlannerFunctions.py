@@ -6,6 +6,8 @@ import rospy
 import numpy as np
 from numpy.linalg import norm
 
+import geometry_msgs.msg as gm
+import brett2.ros_utils as ru
 
 """
 Class which plans based on OpenRAVE's IK solver
@@ -99,22 +101,22 @@ class IKInterpolationPlanner(object):
         return trajectory
     
     
-    """
-    Moves the tool tip in the specified direction in the gripper frame.
-     
-    Direction of movement                    -> dir
+    #Not sure about scale here. Treating everything as meters. 
+    #I don't think I need to worry about scale here anyway
+    def goInDirection (self, dir, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the gripper frame.
+        
+        Direction of movement                    -> dir
         f -> forward (along the tip of the gripper)
         b -> backward
         u -> up
         d -> down
         l -> left
         r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
-    #Not sure about scale here. Treating everything as meters. 
-    #I don't think I need to worry about scale here anyway
-    def goInDirection (self, dir, dist, steps=10):
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """
         
         initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
@@ -149,22 +151,22 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
 
         
-    """
-    Moves the tool tip in the specified direction in the base_link frame. 
-    
-    Direction of movement                    -> dir
+    def goInWorldDirection (self, dir, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the base_link frame. 
+        
+        Direction of movement                    -> dir
         f -> forward
         b -> backward
         u -> up
         d -> down
         l -> left
         r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
-    #Not sure about scale here. Treating everything as meters. 
-    #I don't think I need to worry about scale here anyway
-    def goInWorldDirection (self, dir, dist, steps=10):
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """
+        #Not sure about scale here. Treating everything as meters. 
+        #I don't think I need to worry about scale here anyway
         
         initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
@@ -200,20 +202,20 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
   
         
-    """
-    Moves the gripper in a circle.
-    
-    Direction of circle (either inner or outer)       -> dir
-    Radius of circle                                  -> rad
-    Final angle covered by circle                     -> finAng
-    Number of points of linear interpolation of angle -> steps
-    """
-    def circleAroundRadius (self, dir, rad, finAng, steps=10):
+    def circleAroundRadius (self, d, rad, finAng, rviz, steps=10):
+        """
+        Moves the gripper in a circle.
+        
+        Direction of circle (either inner or outer)       -> dir
+        Radius of circle                                  -> rad
+        Final angle covered by circle                     -> finAng
+        Number of points of linear interpolation of angle -> steps
+        """
         
         WorldFromEETfm = self.arm.manip.GetEndEffectorTransform()
         
         initTfm = np.eye(4)
-        initOrigin = dir*rad*np.array([0,1,0])
+        initOrigin = d*rad*np.array([0,1,0])
         initTfm[0:3,3] = np.unwrap(initOrigin)
         transforms = []
         
@@ -221,14 +223,39 @@ class IKInterpolationPlanner(object):
             ang = float(finAng)*step/steps
             
             rotMat = np.eye(4)
-            rotMat[0,0] = np.cos(dir*ang)
-            rotMat[0,1] = -np.sin(dir*ang)
-            rotMat[1,0] = np.sin(dir*ang)
-            rotMat[1,1] = np.cos(dir*ang)
+            rotMat[0,0] = np.cos(d*ang)
+            rotMat[0,1] = -np.sin(d*ang)
+            rotMat[1,0] = np.sin(d*ang)
+            rotMat[1,1] = np.cos(d*ang)
             rotMat[0:3,3] = np.unwrap(-1*initOrigin)
-            print rotMat
+            #print rotMat
             
-            transforms.append(WorldFromEETfm*rotMat*initTfm)
+            tfm = WorldFromEETfm*rotMat*initTfm
+            transforms.append(tfm)
+        print transforms
             
+        if rviz is not None:
+            for T in transforms:
+                # show the transforms for debugging
+                ps   = gm.PoseStamped()
+                q    = ru.transformations.quaternion_from_matrix(T)
+                orig = T[0:3,3]
+                
+                ps.header.frame_id = '/base_link'
+                ps.header.stamp = rospy.Time.now()
+                
+                ps.pose.position.x = orig[0]
+                ps.pose.position.y = orig[1]
+                ps.pose.position.z = orig[2]
+                
+                ps.pose.orientation.x = q[0]
+                ps.pose.orientation.y = q[1]
+                ps.pose.orientation.z = q[2]
+                ps.pose.orientation.w = q[3]
+                
+                print "here"
+
+                rviz.draw_marker(ps, ns='markers')
+
         return self.smoothPlan(transforms)
         
