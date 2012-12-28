@@ -202,23 +202,22 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
   
         
-    def circleAroundRadius (self, d, rad, finAng, rviz, steps=10):
+    def circleAroundRadius (self, d, rad, finAng, markerPlacer, steps=10):
         """
         Moves the gripper in a circle.
         
-        Direction of circle (either inner or outer)       -> dir
+        Direction of circle \in {1,-1} (either inner or outer)  -> dir
         Radius of circle                                  -> rad
         Final angle covered by circle                     -> finAng
         Number of points of linear interpolation of angle -> steps
         """
-        
         WorldFromEETfm = self.arm.manip.GetEndEffectorTransform()
         
         initTfm = np.eye(4)
         initOrigin = d*rad*np.array([0,1,0])
-        initTfm[0:3,3] = np.unwrap(initOrigin)
+        initTfm[0:3,3] = initOrigin
         transforms = []
-        
+
         for step in range(steps+1):
             ang = float(finAng)*step/steps
             
@@ -227,14 +226,13 @@ class IKInterpolationPlanner(object):
             rotMat[0,1] = -np.sin(d*ang)
             rotMat[1,0] = np.sin(d*ang)
             rotMat[1,1] = np.cos(d*ang)
-            rotMat[0:3,3] = np.unwrap(-1*initOrigin)
-            #print rotMat
-            
-            tfm = WorldFromEETfm*rotMat*initTfm
+            rotMat[0:3,3] = -1*initOrigin
+
+            tfm = WorldFromEETfm.dot(rotMat.dot(initTfm))
             transforms.append(tfm)
-        print transforms
             
-        if rviz is not None:
+        # debug drawing
+        if markerPlacer is not None:
             for T in transforms:
                 # show the transforms for debugging
                 ps   = gm.PoseStamped()
@@ -253,9 +251,6 @@ class IKInterpolationPlanner(object):
                 ps.pose.orientation.z = q[2]
                 ps.pose.orientation.w = q[3]
                 
-                print "here"
-
-                rviz.draw_marker(ps, ns='markers')
+                markerPlacer.draw_marker(ps, ns='markers')
 
         return self.smoothPlan(transforms)
-        

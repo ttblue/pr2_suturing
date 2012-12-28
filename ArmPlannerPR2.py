@@ -55,7 +55,7 @@ class PlannerArm(Arm):
             self.follow_joint_trajectory (trajectory)
         else: raise IKFail
         
-    def circleAroundRadius (self, d, rad, finAng, steps=10, rviz=None):
+    def circleAroundRadius (self, d, rad, finAng, markerPlacer=None, steps=10):
         """
         Moves the gripper in a circle.
         
@@ -65,8 +65,8 @@ class PlannerArm(Arm):
         Number of points of linear interpolation of angle -> steps
         """
         self.pr2.update_rave()
-        trajectory = self.planner.circleAroundRadius(d, rad, finAng, rviz)
-
+        trajectory = self.planner.circleAroundRadius(d, rad, finAng, markerPlacer)
+        
         if trajectory: 
             self.follow_joint_trajectory (trajectory)
         else: raise IKFail
