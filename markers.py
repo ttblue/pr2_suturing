@@ -1,8 +1,6 @@
 """
 Simple script to display markers in rviz.
-Uses John's python code.
 """
-
 import rospy
 import geometry_msgs.msg as gm
 import std_msgs.msg as stdm
@@ -14,6 +12,8 @@ class MarkerPlacer:
     """
     A very simple class to place markers in rviz.
     Useful for visualizing transforms.
+
+    See below ('main') for example usage.
     """
 
     def __init__(self):
@@ -34,28 +34,34 @@ class MarkerPlacer:
         self.pub.publish(marker)      
 
     def get_unused_id(self):
+        """
+        Need to get unique id for each marker.
+        Otherwise, the new marker will replace the old marker with the same id.
+        """
         while True:
             id = np.random.randint(0,2147483647)
             if id not in self.ids: return id
     
 
-rospy.init_node("markers")
-r = rospy.Rate(1)
-p = MarkerPlacer()
+if __name__=='__main__':
 
-while True:
-    ps = gm.PoseStamped()
-    ps.header.frame_id = '/frame'
-    ps.header.stamp = rospy.Time.now()
+    rospy.init_node("markers")
+    r = rospy.Rate(1)
+    p = MarkerPlacer()
 
-    # change ps.pose as desired
-    ps.pose.position.x = 0
-    ps.pose.position.y = 0
-    ps.pose.position.z = 0
-    ps.pose.orientation.x = 0.0
-    ps.pose.orientation.y = 0.0
-    ps.pose.orientation.z = 0.0
-    ps.pose.orientation.w = 1.0
+    while True:
+        ps = gm.PoseStamped()
+        ps.header.frame_id = '/frame'
+        ps.header.stamp = rospy.Time.now()
 
-    p.draw_marker(ps,scale=(1,1,1), duration=0)
-    r.sleep()
+        # change ps.pose as desired
+        ps.pose.position.x = 0
+        ps.pose.position.y = 0
+        ps.pose.position.z = 0
+        ps.pose.orientation.x = 0.0
+        ps.pose.orientation.y = 0.0
+        ps.pose.orientation.z = 0.0
+        ps.pose.orientation.w = 1.0
+
+        p.draw_marker(ps,scale=(1,1,1), duration=0)
+        r.sleep()
