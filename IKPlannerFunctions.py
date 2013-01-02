@@ -7,11 +7,10 @@ import numpy as np
 from numpy.linalg import norm
 
 
-"""
-Class which plans based on OpenRAVE's IK solver
-"""
 class IKInterpolationPlanner(object):
-    
+    """
+    Class which plans based on OpenRAVE's IK solver
+    """    
     def __init__(self, _arm, _rl, _filter_options=0):
         self.rl = _rl
         #If useful
