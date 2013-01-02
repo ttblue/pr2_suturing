@@ -20,26 +20,26 @@ class IKInterpolationPlanner(object):
         self.filter_options = _filter_options
     
     
-    """
-    Filter options indicate basic options while planning:
+    def setFilterOptions (self, filter_options):
+        """
+        Filter options indicate basic options while planning:
     
         IKFO_CheckEnvCollisions = 1
         IKFO_IgnoreSelfCollisions = 2
         IKFO_IgnoreJointLimits = 4
         IKFO_IgnoreCustomFilters = 8
         IKFO_IgnoreEndEffectorCollisions = 16
-    """
-    def setFilterOptions (self, filter_options):
+        """
         self.filter_options = filter_options
         
         
-    """        
-    Basic plan function which just solves the IK for each transform given.
-    
-    List of transforms along path -> transforms
-    """       
+   
     def plan(self, transforms):
-        
+        """        
+        Basic plan function which just solves the IK for each transform given.
+    
+        List of transforms along path -> transforms
+        """            
         if len(transforms) < 1:
             rospy.ERROR('Not enough transforms!')
         
@@ -61,15 +61,14 @@ class IKInterpolationPlanner(object):
         return trajectory
     
     
-    """
-    Smooth plan function which solves for all IK solutions for each transform given.
-    It then chooses the joint DOF values which are closest to current DOF values.
-    
-    List of transforms along path -> transforms
-    """       
     #Assuming all the Joint DOFs are numpy arrays
     def smoothPlan(self, transforms):
+        """
+        Smooth plan function which solves for all IK solutions for each transform given.
+        It then chooses the joint DOF values which are closest to current DOF values.
         
+        List of transforms along path -> transforms
+        """        
         if len(transforms) < 1:
             rospy.ERROR('Not enough transforms!')
         
@@ -99,40 +98,39 @@ class IKInterpolationPlanner(object):
         return trajectory
     
     
-    """
-    Moves the tool tip in the specified direction in the gripper frame.
-     
-    Direction of movement                    -> dir
-        f -> forward (along the tip of the gripper)
-        b -> backward
-        u -> up
-        d -> down
-        l -> left
-        r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
     #Not sure about scale here. Treating everything as meters. 
     #I don't think I need to worry about scale here anyway
-    def goInDirection (self, dir, dist, steps=10):
-        
+    def goInDirection (self, d, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the gripper frame.
+         
+        Direction of movement                    -> d
+            f -> forward (along the tip of the gripper)
+            b -> backward
+            u -> up
+            d -> down
+            l -> left
+            r -> right
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """        
         initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
         
-        if    dir == 'f':
+        if    d == 'f':
             dirVec = initTransform[0:3,2]
-        elif  dir == 'b': 
+        elif  d == 'b': 
             dirVec = -1*initTransform[0:3,2]
-        elif  dir == 'u':
+        elif  d == 'u':
             dirVec = initTransform[0:3,1]
-        elif  dir == 'd':
+        elif  d == 'd':
             dirVec = -1*initTransform[0:3,1]
-        elif  dir == 'l':
+        elif  d == 'l':
             dirVec = initTransform[0:3,0]
-        elif  dir == 'r':
+        elif  d == 'r':
             dirVec = -1*initTransform[0:3,0]
         else:
-            rospy.ERROR("Invalid direction: " + dir)
+            rospy.ERROR("Invalid direction: " + d)
         
         endOffset = dirVec*float(dist)
         
@@ -149,41 +147,41 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
 
         
-    """
-    Moves the tool tip in the specified direction in the base_link frame. 
     
-    Direction of movement                    -> dir
-        f -> forward
-        b -> backward
-        u -> up
-        d -> down
-        l -> left
-        r -> right
-    Distance traveled by tool tip            -> dist
-    Number of points of linear interpolation -> steps
-    """
     #Not sure about scale here. Treating everything as meters. 
     #I don't think I need to worry about scale here anyway
-    def goInWorldDirection (self, dir, dist, steps=10):
+    def goInWorldDirection (self, d, dist, steps=10):
+        """
+        Moves the tool tip in the specified direction in the base_link frame. 
         
+        Direction of movement                    -> d
+            f -> forward
+            b -> backward
+            u -> up
+            d -> down
+            l -> left
+            r -> right
+        Distance traveled by tool tip            -> dist
+        Number of points of linear interpolation -> steps
+        """
         initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
         baseTransform = self.arm.pr2.robot.GetLink('base_link').GetTransform()
         
-        if    dir == 'u':
+        if    d == 'u':
             dirVec = baseTransform[0:3,2]
-        elif  dir == 'd': 
+        elif  d == 'd': 
             dirVec = -1*baseTransform[0:3,2]
-        elif  dir == 'l':
+        elif  d == 'l':
             dirVec = baseTransform[0:3,1]
-        elif  dir == 'r':
+        elif  d == 'r':
             dirVec = -1*baseTransform[0:3,1]
-        elif  dir == 'f':
+        elif  d == 'f':
             dirVec = baseTransform[0:3,0]
-        elif  dir == 'b':
+        elif  d == 'b':
             dirVec = -1*baseTransform[0:3,0]
         else:
-            rospy.ERROR("Invalid direction: " + dir)
+            rospy.ERROR("Invalid direction: " + d)
         
         endOffset = dirVec*float(dist)
         
@@ -200,20 +198,19 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
   
         
-    """
-    Moves the gripper in a circle.
-    
-    Direction of circle (either inner or outer)       -> dir
-    Radius of circle                                  -> rad
-    Final angle covered by circle                     -> finAng
-    Number of points of linear interpolation of angle -> steps
-    """
-    def circleAroundRadius (self, dir, rad, finAng, steps=10):
+    def circleAroundRadius (self, d, rad, finAng, steps=10):
+        """
+        Moves the gripper in a circle.
         
+        Direction of circle (either inner or outer)       -> d
+        Radius of circle                                  -> rad
+        Final angle covered by circle                     -> finAng
+        Number of points of linear interpolation of angle -> steps
+        """
         WorldFromEETfm = self.arm.manip.GetEndEffectorTransform()
         
         initTfm = np.eye(4)
-        initOrigin = dir*rad*np.array([0,1,0])
+        initOrigin = d*rad*np.array([0,1,0])
         initTfm[0:3,3] = np.unwrap(initOrigin)
         transforms = []
         
@@ -221,14 +218,13 @@ class IKInterpolationPlanner(object):
             ang = float(finAng)*step/steps
             
             rotMat = np.eye(4)
-            rotMat[0,0] = np.cos(dir*ang)
-            rotMat[0,1] = -np.sin(dir*ang)
-            rotMat[1,0] = np.sin(dir*ang)
-            rotMat[1,1] = np.cos(dir*ang)
+            rotMat[0,0] = np.cos(d*ang)
+            rotMat[0,1] = -np.sin(d*ang)
+            rotMat[1,0] = np.sin(d*ang)
+            rotMat[1,1] = np.cos(d*ang)
             rotMat[0:3,3] = np.unwrap(-1*initOrigin)
             print rotMat
             
-            transforms.append(WorldFromEETfm*rotMat*initTfm)
+            transforms.append(WorldFromEETfm.dot(rotMat.dot(initTfm)))
             
         return self.smoothPlan(transforms)
-        
