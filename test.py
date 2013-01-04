@@ -21,11 +21,31 @@ class SutureActions (object):
         self.holeService = rospy.ServiceProxy('getHoleNormal', PointDir)
         
         self.camera_frame = '/camera_rgb_optical_frame'
-        #baselinkFromCamera
+        # baselinkFromCamera
+        self.pr2.tf_listener.waitForTransform("/base_link", self.camera_frame, rospy.Time(), rospy.Duration(10.0))
         (trans, rot) = self.pr2.tf_listener.lookupTransform('/base_link',self.camera_frame,rospy.Time(0))
         self.camera_transform = conv.trans_rot_to_hmat(trans, rot);
-    
-    #Point would need to be midpoint    
+        
+        # Variables for flap pick-up
+        # How far above the cut to start
+        self.cut_upStartPos = 0.05
+        # How far to the side to start (+ve direction is opposite to the side of the cut)
+        # i.e, for left cut, +ve is right and vice versa
+        self.cut_sideStartPos = -0.02
+        # Rotation of gripper downward  
+        self.cut_rotStartPos = np.pi/4
+        # Initial gripper angle to hold cut
+        self.cut_gripperStartAngle = 0.04
+        # How much to move down to pick up flap
+        self.cut_moveDown = 0.1
+        # How much to move in to pick up flap
+        self.cut_moveIn = 0.045
+        # How much to move up after picking up the flap
+        self.cut_moveUpEnd = 0.03
+        # How much to move in after picking up flap 
+        self.cut_moveInEnd = 0.015
+        
+    # Point would need to be midpoint    
     def getCutLine(self, index):
         """
         Calls service 'getCutLine' with index and
@@ -36,8 +56,10 @@ class SutureActions (object):
             response = self.cutService(index)
             pt = response.point
             dr = response.dir
-            print pt, '\n', dr
-            return [pt.x,pt.y,pt.z],[dr.z,dr.y,dr.z]
+            print "In camera frame:"
+            print "Mid-point of cut: \n", [pt.x, pt.y, pt.z]
+            print "Direction of line of cut: \n", [dr.x, dr.y, dr.z]
+            return [pt.x,pt.y,pt.z],[dr.x,dr.y,dr.z]
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
             return None, None
@@ -53,8 +75,10 @@ class SutureActions (object):
             response = self.holeService(index)
             pt = response.point
             dr = response.dir
-            print pt, '\n', dr
-            return [pt.x,pt.y,pt.z],[dr.z,dr.y,dr.z]
+            print "In camera frame:"
+            print "Average point of hole: \n", [pt.x, pt.y, pt.z]
+            print "Direction of normal: \n", [dr.x, dr.y, dr.z]
+            return [pt.x,pt.y,pt.z],[dr.x,dr.y,dr.z]
         except rospy.ServiceException, e:
             print "Service call failed: %s"%e
             return None, None
@@ -67,19 +91,18 @@ class SutureActions (object):
         """
         pt, dVecCam = self.getCutLine(index)
         if pt is None or dVecCam is None: return None
-        
-        if index==1:
-            flip=1
-        elif index==2:
-            flip=-1
-        
+
+        # Flip orientation according to cut        
+        flip = {1:1, 2:-1}[index]
+
         dVecRot = dVecCam + [0]
         
         dVecX = self.camera_transform.dot(dVecRot)[:-1]
-        dVecX_baselink = self.pr2.robot.GetLink('base_link').GetTransform()[:-1,0]
-        #Orient dVecX to point away from PR2
-        if dVecX.dot(dVecX_baselink) < 0:
-            dVecX = -1*dVecX
+        # Rave's base_link not correct way to orient dVecX. 
+        # dVecX_baselink = self.pr2.robot.GetLink('base_link').GetTransform()[:-1,0]
+        # Orient dVecX to point away from PR2 
+        # if dVecX.dot(dVecX_baselink) < 0:
+        #     dVecX = -1*dVecX
 
         dVecY = flip*np.array([-dVecX[1],dVecX[0],0])
         dVecY = dVecY/np.linalg.norm(dVecY)
@@ -91,29 +114,127 @@ class SutureActions (object):
         tfm[0:3,2] = np.unwrap(dVecZ)
         tfm[0:3,3] = self.camera_transform.dot(pt+[1])[:-1]
         
-        print tfm
-        
         return tfm 
         
-    def moveGripperToCut (self, index):
+    # TODO: Move gripper to some point along cut rather than midPoint
+    # TODO: Rotation correction done only for left cut. Do for right cut (left gripper) 
+    def moveGripperToPickupStartPos (self, index):
         """
         Moves appropriate gripper to cut specified by index.
         """
         arm = {1:self.pr2.rarm, 2:self.pr2.larm}[index]
+        # Close gripper before starting
+        gripper = {1:self.pr2.rgrip, 2:self.pr2.lgrip}[index]
+        gripper.close()
+        self.pr2.join_all()
+        rospy.sleep(1)
+
+        # Flip orientation according to cut        
+        flip = {1:1, 2:-1}[index]
         
         cutTfm = self.findCutTransform(index)
         if cutTfm is None:
             print "Cannot find cut Transform for the index"
             return
         
+        cutTfm[2,3] += self.cut_upStartPos
+        cutTfm[1,3] -= flip*self.cut_sideStartPos
+        
         corrRot = np.array([[-1,0,0,0],
                             [ 0,0,1,0],
                             [ 0,1,0,0],
                             [ 0,0,0,1]])
-        gpTfm = corrRot.dot(cutTfm)
-    
+        # Rotation about z axis by angle = self.cut_rotStartPos
+        corrRot2 = np.array ([[1, 0                           , 0                            , 0],
+                              [0, np.cos(self.cut_rotStartPos), -np.sin(self.cut_rotStartPos), 0],
+                              [0, np.sin(self.cut_rotStartPos), np.cos(self.cut_rotStartPos) , 0],
+                              [0, 0                           , 0                            , 1]])
+        gpTfm = cutTfm.dot(corrRot.dot(corrRot2))
+        """ For testing the transforms:
+        br = tf.TransformBroadcaster()
+        rate = rospy.Rate(0.2)
+        (trans, rot) = conv.hmat_to_trans_rot(gpTfm)
+        
+        while True:
+            br.sendTransform(trans, rot,
+                             rospy.Time.now(),
+                             'gripper_tfm',
+                             'base_link')
+            rate.sleep()
+        """
         arm.goto_pose_matrix(gpTfm, 'base_link', 'end_effector')
+        self.pr2.join_all()
+        
+    def moveGripperToPickupEndPos (self, index):
+        """
+        Assumes that the gripper is now holding the flap in the same
+        orientation as the start position.
+        ONLY call this if the above assumption is true.
+        """
+        arm = {1:self.pr2.rarm, 2:self.pr2.larm}[index]
+        moveInDir = {1:'l', 2:'r'}[index]
+        
+        gpTfm = arm.manip.GetEndEffectorTransform()
+        corrRot = np.array ([[1, 0                                     , 0                                      , 0],
+                             [0, np.cos(np.pi/2 - self.cut_rotStartPos), -np.sin(np.pi/2 - self.cut_rotStartPos), 0],
+                             [0, np.sin(np.pi/2 - self.cut_rotStartPos), np.cos(np.pi/2 - self.cut_rotStartPos) , 0],
+                             [0, 0                                     , 0                                      , 1]])
+        gpTfm = gpTfm.dot(corrRot)
+        
+        """ For testing the transforms:
+        br = tf.TransformBroadcaster()
+        rate = rospy.Rate(0.2)
+        (trans, rot) = conv.hmat_to_trans_rot(gpTfm)
+        
+        while True:
+            br.sendTransform(trans, rot,
+                             rospy.Time.now(),
+                             'gripper_final_tfm',
+                             'base_link')
+            rate.sleep()
+        """
+        
+        arm.goto_pose_matrix(gpTfm, 'base_link', 'end_effector')
+        self.pr2.join_all()
+        rospy.sleep(5)
+        arm.goInWorldDirection('u',self.cut_moveUpEnd)
+        self.pr2.join_all()
+        rospy.sleep(5)
+        #arm.goInWorldDirection(moveInDir,self.cut_moveInEnd)
+        #self.pr2.join_all()
+        #rospy.sleep(3)
+        
+    
+    def pickUpFlap (self, index):
+        """
+        Function to make PR2 pick up flap of cut represented by index.
+        """
+        gripper = {1:self.pr2.rgrip, 2:self.pr2.lgrip}[index]
+        arm = {1:self.pr2.rarm, 2:self.pr2.larm}[index]
+        moveInDir = {1:'l', 2:'r'}[index]
+        
+        self.moveGripperToPickupStartPos(index)
+        rospy.sleep(5)
+        gripper.set_angle(self.cut_gripperStartAngle)
+        self.pr2.join_all()
+        rospy.sleep(1)
+        # PR2 is now ready to pick up flap
+        # Move down to pick up
+        arm.goInWorldDirection('d', self.cut_moveDown)
+        self.pr2.join_all()
+        rospy.sleep(5)
+        arm.goInWorldDirection(moveInDir, self.cut_moveIn)
+        self.pr2.join_all()
+        rospy.sleep(5)
+        gripper.close()
+        self.pr2.join_all()
+        rospy.sleep(3)
+        
+        #When tested:
+        self.moveGripperToPickupEndPos(index)
 
 if __name__=="__main__":
     rospy.init_node("test_node")
     p = SutureActions()
+    larm = p.pr2.larm
+    rarm = p.pr2.rarm
