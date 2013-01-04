@@ -1,6 +1,9 @@
 from IKPlannerFunctions import IKInterpolationPlanner
 from brett2.PR2 import PR2, Arm, IKFail
 
+import openravepy as opr
+import numpy as np
+
 class PlannerArm(Arm):
     """
     Planner class for the Arm.
@@ -75,12 +78,40 @@ class PlannerPR2 (PR2):
     """
     Planner class for PR2 with planning arms.
     """    
-    def __init__ (self):
+    def __init__ (self,initPos=None):
         PR2.__init__(self)
         self.rarm = PlannerArm(self,'r')
-        self.larm = PlannerArm(self, 'l')
+        self.larm = PlannerArm(self,'l')
+        
+        
+        if initPos is not None:
+            try:
+                self.gotoArmPosture(initPos)
+            except:
+                print "Cannot go to pos ", initPos
+                
+        self.addTableToRave()
+        
         
     def gotoArmPosture (self, pos):
+        """
+        Makes both arms go to the specified posture.
+        """
         self.larm.goto_posture(pos)
         self.rarm.goto_posture(pos)
-        self.update_rave()
+        self.join_all()
+        
+    def addTableToRave (self):
+        """
+        Adds a box of predefined position/ half-extents to
+        the rave Environment.
+        """
+        tablePos = [0.75,0,0.72]
+        tableHalfExtents = [0.5,0.45,0.05]
+        
+        with self.env:
+            body = opr.RaveCreateKinBody(self.env,'')
+            body.SetName('table')
+            body.InitFromBoxes(np.array([tablePos + tableHalfExtents]),True)
+            self.env.AddKinBody(body,True)
+ 
