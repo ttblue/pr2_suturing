@@ -72,6 +72,25 @@ class PlannerArm(Arm):
             self.follow_joint_trajectory (trajectory)
         else: raise IKFail
         
+    def goto_pose_matrix (self, matrix4, ref_frame, targ_frame, filter_options=-1):
+        """
+        Moves the arm such that the transform between ref_frame and
+        targ_frame is matrix4. Also uses filter_options as specified
+        in self.planner (by default).
+        """
+        if filter_options==-1:
+            filter_options = self.planner.filter_options
+        Arm.goto_pose_matrix(self, matrix4, ref_frame, targ_frame, filter_options)
+    
+    def cart_to_joint(self, matrix4, ref_frame, targ_frame, filter_options=-1):
+        """
+        Calculates IK for given transform between ref_frame and targ_frame. 
+        """
+        if filter_options==-1:
+            filter_options = self.planner.filter_options
+        self.pr2.update_rave()
+        return Arm.cart_to_joint(self.manip, matrix4, ref_frame, targ_frame, filter_options)
+        
         
 
 class PlannerPR2 (PR2):
