@@ -1,0 +1,3 @@
+Angle:   2.43296373
+Y_dist:  20.2 cm
+X_dist:  -5.7 cm
