@@ -11,7 +11,7 @@ class IKInterpolationPlanner(object):
     """
     Class which plans based on OpenRAVE's IK solver
     """    
-    def __init__(self, _arm, _rl, _filter_options=1):
+    def __init__(self, _arm, _rl, _filter_options=1 ):
         self.rl = _rl
         #If useful
         self.rl_long = {'l':'left', 'r':'right'}[self.rl]
@@ -77,9 +77,9 @@ class IKInterpolationPlanner(object):
             
         trajectory = []
         
-        #armIndices = self.arm.manip.GetJointIndices()
-        #currJoints = self.pr2.robot.GetDOFValues(armIndices)
-        currJoints = self.arm.get_joint_positions()
+        armIndices = self.arm.manip.GetArmIndices()
+        currJoints = self.arm.manip.GetRobot().GetDOFValues(armIndices)
+        # currJoints = self.arm.get_joint_positions()
         
         for transform in transforms:
             allJoints = self.arm.manip.FindIKSolutions(transform, self.filter_options)
@@ -151,7 +151,7 @@ class IKInterpolationPlanner(object):
     #I don't think I need to worry about scale here anyway
     def goInWorldDirection (self, d, dist, steps=10):
         """
-        Moves the tool tip in the specified direction in the base_link frame. 
+        Moves the tool tip in the specified direction in the base_ frame. 
         
         Direction of movement                    -> d
             f -> forward
@@ -165,7 +165,7 @@ class IKInterpolationPlanner(object):
         """
         initTransform = self.arm.manip.GetEndEffectorTransform()
         initOrigin = initTransform[0:3,3]
-        baseTransform = self.arm.pr2.robot.GetLink('base_link').GetTransform()
+        baseTransform = self.arm.pr2.robot.GetLink('base_footprint').GetTransform()
         
         if    d == 'u':
             dirVec = baseTransform[0:3,2]
@@ -197,11 +197,12 @@ class IKInterpolationPlanner(object):
         return self.smoothPlan(transforms)
   
         
-    def circleAroundRadius (self, d, rad, finAng, steps=10):
+    def circleAroundRadius (self, d, t, rad, finAng, steps=10):
         """
         Moves the gripper in a circle.
         
         Direction of circle (either inner or outer)       -> d
+        Direction of turn along circle                    -> t
         Radius of circle                                  -> rad
         Final angle covered by circle                     -> finAng
         Number of points of linear interpolation of angle -> steps
@@ -217,10 +218,10 @@ class IKInterpolationPlanner(object):
             ang = float(finAng)*step/steps
             
             rotMat = np.eye(4)
-            rotMat[0,0] = np.cos(d*ang)
-            rotMat[0,1] = -np.sin(d*ang)
-            rotMat[1,0] = np.sin(d*ang)
-            rotMat[1,1] = np.cos(d*ang)
+            rotMat[0,0] = np.cos(t*ang)
+            rotMat[0,1] = -np.sin(t*ang)
+            rotMat[1,0] = np.sin(t*ang)
+            rotMat[1,1] = np.cos(t*ang)
             rotMat[0:3,3] = np.unwrap(-1*initOrigin)
             print rotMat
             
