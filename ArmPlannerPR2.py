@@ -1,8 +1,11 @@
 from IKPlannerFunctions import IKInterpolationPlanner
 from brett2.PR2 import PR2, Arm, IKFail
 
+import rospy
+
 import openravepy as opr
 import numpy as np
+import numpy.linalg as nla
 
 class PlannerArm(Arm):
     """
@@ -36,7 +39,7 @@ class PlannerArm(Arm):
 
     def goInWorldDirection (self, d, dist, steps=10):
         """
-        Moves the tool tip in the specified direction in the base_link frame. 
+        Moves the tool tip in the specified direction in the base_footprint frame. 
         
         Direction of movement                    -> d
             f -> forward
@@ -56,17 +59,26 @@ class PlannerArm(Arm):
         else: raise IKFail
         
 
-    def circleAroundRadius (self, d, rad, finAng, steps=10):
+    def circleAroundRadius (self, pose, rad, finAng, steps=10):
         """
         Moves the gripper in a circle.
         
-        Direction of circle (either inner or outer)       -> d
+        Pose of needle in hand (as given below in the
+          function ArmPlannerPR2.moveNeedleToGripperPose) -> pose
         Radius of circle                                  -> rad
         Final angle covered by circle                     -> finAng
         Number of points of linear interpolation of angle -> steps
         """        
         self.pr2.update_rave()
-        trajectory = self.planner.circleAroundRadius (d, rad, finAng)
+        
+        if pose not in [1,2,3,4]:
+            rospy.logwarn ("Invalid option for pose.")
+            return
+        if self.lr == 'r':
+            pose = {1:2, 2:1, 3:4, 4:3}[pose]
+        d,t = {1:(-1,-1), 2:(1,1), 3:(-1,1), 4:(1,-1)}[pose]
+        
+        trajectory = self.planner.circleAroundRadius (d, t, rad, finAng, steps)
 
         if trajectory: 
             self.follow_joint_trajectory (trajectory)
@@ -81,6 +93,17 @@ class PlannerArm(Arm):
         if filter_options==-1:
             filter_options = self.planner.filter_options
         Arm.goto_pose_matrix(self, matrix4, ref_frame, targ_frame, filter_options)
+        
+    def goto_pose_matrix_rave (self, matrix4, ref_frame, targ_frame, filter_options=-1):
+        """
+        Moves the arm in openrave only. This is only for planning. Please be very careful when
+        doing this and make sure to update rave properly back to the real PR2 after finishing.
+        """
+        if filter_options==-1:
+            filter_options = self.planner.filter_options
+        joints = self.cart_to_joint(matrix4, ref_frame, targ_frame, filter_options)
+        if joints is not None: self.pr2.robot.SetJointValues(joints, self.manip.GetArmIndices())
+        else: raise IKFail
     
     def cart_to_joint(self, matrix4, ref_frame, targ_frame, filter_options=-1):
         """
@@ -88,8 +111,7 @@ class PlannerArm(Arm):
         """
         if filter_options==-1:
             filter_options = self.planner.filter_options
-        self.pr2.update_rave()
-        return Arm.cart_to_joint(self.manip, matrix4, ref_frame, targ_frame, filter_options)
+        return Arm.cart_to_joint(self, matrix4, ref_frame, targ_frame, filter_options)
         
         
 
@@ -103,12 +125,15 @@ class PlannerPR2 (PR2):
         self.larm = PlannerArm(self,'l')
         # In case needle is not added
         self.sneedle = None
+        self.sneedle_radius = 0
+        self.sneedle_pose = 0
+        self.grabbingArm = None
         
         if initPos is not None:
             try:
                 self.gotoArmPosture(initPos)
             except:
-                print "Cannot go to pos ", initPos
+                rospy.logwarn ("Cannot go to pose " + str(initPos))
                 
         self.addTableToRave()
         self.addNeedleToRave()
@@ -147,6 +172,7 @@ class PlannerPR2 (PR2):
             self.env.AddKinBody(self.sneedle)
             
         self.resetNeedlePose()
+        self.sneedle_radius = 0.12
             
     def resetNeedlePose (self):
         """
@@ -223,7 +249,7 @@ class PlannerPR2 (PR2):
             rot[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])
             
         else:
-            print "Unknown needle pose. Not setting any transform."
+            rospy.logwarn ("Unknown needle pose. Not setting any transform.")
             return
                                         
         sndTfm = WfromEE.dot(rot.dot(trans))
@@ -233,8 +259,13 @@ class PlannerPR2 (PR2):
         """
         Grabs the needle with the specified gripper and specified pose.
         Pose descriptions are given in function moveNeedleToGripperPose.
+        Does not check for collisions on doing so.
         """
         if self.sneedle is None:
+            return
+        
+        if pose not in [1,2,3,4]:
+            rospy.logwarn ("Unknown needle pose. Not grabbing needle.")
             return
         
         self.moveNeedleToGripperPose(rl,pose)
@@ -245,9 +276,11 @@ class PlannerPR2 (PR2):
         
         grabbed = self.robot.Grab(self.sneedle)
         if grabbed is False:
-            print "Unable to grab the needle"
+            rospy.logwarn("Unable to grab the needle")
             self.resetNeedlePose()
         
+        self.sneedle_pose = pose
+        self.grabbingArm = {'r':self.rarm, 'l':self.larm}[rl]
         self.robot.SetActiveManipulator(oldManip)
         
     def releaseNeedle (self):
@@ -259,3 +292,54 @@ class PlannerPR2 (PR2):
         
         self.robot.Release(self.sneedle)
         self.resetNeedlePose()
+        self.sneedle_pose = 0
+        self.grabbingArm = None
+        
+    def needleTipTransform (self):
+        """
+        Returns the transform of the needle tip.
+        Z is pointing out of the tip and X is pointing out of the plane.
+        """
+        needleTfm = self.sneedle.GetTransform()
+        
+        handleTrans = np.eye(4)
+        handleTrans[[0,1],[3,3]] = np.array([0.07,0.05])
+        handleRot = np.eye(4)
+        ind1, ind2 = [0,0,1,1], [0,1,0,1]
+        theta = -np.pi/6
+        handleRot[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])
+        
+        handleTfm = handleTrans.dot(handleRot)
+        
+        # Values found offline
+        tipTrans = np.eye(4)
+        tipTrans[[0,1],[3,3]] = np.array([-0.057,0.202])
+        tipRot = np.eye(4)
+        ind1, ind2 = [0,0,1,1], [0,1,0,1]
+        theta = -2.43296373
+        tipRot[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])
+        
+        tipTfm = tipTrans.dot(tipRot)
+        
+        finalRot = np.eye(4)
+        ind1, ind2 = [0,0,2,2], [0,2,0,2]
+        theta = np.pi/2
+        finalRot[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])
+        
+        WfromTip = needleTfm.dot(handleTfm.dot(tipTfm.dot(finalRot)))
+        
+        return WfromTip
+    
+    def getGripperFromNeedleTipTransform(self):
+        """
+        Returns the transform between gripper and needle tip.
+        """
+        if not self.grabbingArm:
+            rospy.logwarn('Needle not being held.')
+            return None
+        
+        WfmNTip  = self.needleTipTransform()
+        WfmEE    = self.grabbingArm.manip.GetTransform()
+        EEfmNTip = nla.inv(WfmEE).dot(WfmNTip)
+        
+        return EEfmNTip
