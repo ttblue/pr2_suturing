@@ -43,9 +43,14 @@ class SutureActionsPR2 (PlannerPR2):
         # How much to move in to pick up flap
         self.cut_moveIn = 0.05
         # How much to move up after picking up the flap
-        self.cut_moveUpEnd = 0.07
+        self.cut_moveUpEnd = 0.09
         # How much to move in after picking up flap 
         self.cut_moveInEnd = 0.015
+        
+        # Distance to move towards hole from start position to pierce
+        self.hole_moveToward = 0.025
+        # Radius to move in circle to pierce cut
+        self.hole_finAng = np.pi/3 
         
     # Point would need to be midpoint    
     def getCutLine(self, index):
@@ -310,12 +315,15 @@ class SutureActionsPR2 (PlannerPR2):
     
     # TODO: Maybe start a little way away from the hole to begin with
     # Might not use this if planning entire path is needed beforehand
-    def moveGripperToPierceStartPos(self, index):
+    def pierceHole(self, index):
         """
-        Moves the gripper to the starting position to pierce the 
-        hole specified by the index.
-        This is assuming the needle is already being held by the
-        gripper.
+        # Moves the gripper to the starting position to pierce the 
+        # hole specified by the index.
+        # This is assuming the needle is already being held by the
+        # gripper.
+        
+        Function to make the PR2 pierce the hole specified by index.
+        If pi/4 works, stick with it (maybe not)
         """ 
         self.update_rave()
         holeTfm = self.findHoleTransform(index)
@@ -341,18 +349,28 @@ class SutureActionsPR2 (PlannerPR2):
         
         gpTfm = holeTfm.dot(rotX).dot(nla.inv(EEfmNTip))
         
+        gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]
+        
         # For testing the transforms:
         # self.testTransforms (gpTfm, 'new_needle', 'base_footprint')
         
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
+        self.join_all()
+        rospy.sleep(10)
+        
+        arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
+        self.join_all()
+        rospy.sleep(7)
         
         return True
     
     # Decided to do everything in this function in order to be able to plan entire
     # path and see if there is an IKFail
-    def pierceHole (self, index):
+    def pierceHole2 (self, index):
         """
         Function to make the PR2 pierce the hole specified by index.
+        This function checks a bunch of viable positions and chooses the
+        one which has the needle closest to the normal.
         """
         arm = {1:self.larm, 2:self.rarm}[index]
         flip = {1:1, 2:-1}[index]
@@ -375,7 +393,6 @@ class SutureActionsPR2 (PlannerPR2):
 
         # Setting up things for planning 
         # Angle to move in circle to pierce, from pi/2 to pi/4
-        finAng = np.pi/2
         attempts = 15 
         dAng = np.pi/(4*attempts)
         # If using right arm
@@ -392,17 +409,19 @@ class SutureActionsPR2 (PlannerPR2):
                 
                 rotX = np.eye(4)
                 ind1, ind2 = [1,1,2,2], [1,2,1,2]
-                theta = -np.pi/2 + dAng*count
+                theta = -dAng*count
                 rotX[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])        
                 gpTfm = holeTfm.dot(rotX).dot(nla.inv(EEfmNTip))
+                # gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]        
                 
                 arm.goto_pose_matrix_rave(gpTfm, 'base_footprint', 'end_effector')
                 
-                circleTraj = arm.planner.circleAroundRadius (d, t, self.sneedle_radius, finAng)
+                circleTraj = arm.planner.circleAroundRadius (d, t, self.sneedle_radius, self.hole_finAng)
                 if not circleTraj:
                     raise IKFail
                 
-                print "Final angle of needle: ", np.pi/2 - dAng*count
+                # Potentially make count more to be safer
+                print "Final angle of needle (0 being normal to hole): ", dAng*count
                 break
             except IKFail:
                 if count==attempts:
@@ -421,9 +440,17 @@ class SutureActionsPR2 (PlannerPR2):
         self.join_all()
         rospy.sleep(12)
         # Should work since there was no IKFail
-        #arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, finAng)
-        #self.join_all()
-        #rospy.sleep(7)
+        arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
+        self.join_all()
+        rospy.sleep(7)
+        
+    def runThrough (self, index, dist=0.05):
+        """
+        Picks up indexed flap and pierces indexed cut.
+        Distance refers to the distance from the hole to pick up the flap.
+        """
+        self.pickUpFlap(index, dist)
+        self.pierceHole(index)
         
         
     def testNeedleTfm (self):
