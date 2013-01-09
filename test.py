@@ -332,7 +332,7 @@ class SutureActionsPR2 (PlannerPR2):
             return False
         
         arm = {1:self.larm, 2:self.rarm}[index]
-        flip = {1:1, 2:-1}[index]
+        # flip = {1:1, 2:-1}[index]
         
         # Openrave needle
         self.grabNeedle()
@@ -373,7 +373,7 @@ class SutureActionsPR2 (PlannerPR2):
         one which has the needle closest to the normal.
         """
         arm = {1:self.larm, 2:self.rarm}[index]
-        flip = {1:1, 2:-1}[index]
+        # flip = {1:1, 2:-1}[index]
         self.update_rave()
         
         holeTfm = self.findHoleTransform(index)
@@ -412,7 +412,7 @@ class SutureActionsPR2 (PlannerPR2):
                 theta = -dAng*count
                 rotX[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])        
                 gpTfm = holeTfm.dot(rotX).dot(nla.inv(EEfmNTip))
-                # gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]        
+                gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]        
                 
                 arm.goto_pose_matrix_rave(gpTfm, 'base_footprint', 'end_effector')
                 
@@ -440,9 +440,9 @@ class SutureActionsPR2 (PlannerPR2):
         self.join_all()
         rospy.sleep(12)
         # Should work since there was no IKFail
-        arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
-        self.join_all()
-        rospy.sleep(7)
+        # arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
+        # self.join_all()
+        # rospy.sleep(7)
         
     def runThrough (self, index, dist=0.05):
         """
