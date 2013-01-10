@@ -121,7 +121,7 @@ class SutureActionsPR2 (PlannerPR2):
         tfm[0:3,2] = np.unwrap(dVecZ)
         tfm[0:3,3] = self.camera_transform.dot(pt+[1])[:-1]
         
-        # self.testTransforms(tfm, 'cut_midpoint_tfm', 'camera_rgb_optical_frame')
+        # self.testTransforms([tfm], ['cut_midpoint_tfm'], ['camera_rgb_optical_frame'])
     
         print "Midpoint: ", self.camera_transform.dot(pt+[1])[:-1]
         
@@ -171,7 +171,7 @@ class SutureActionsPR2 (PlannerPR2):
         gpTfm = cutTfm.dot(corrRot.dot(corrRot2))
         
         # For testing the transforms:
-        # self.testTransforms (gpTfm, 'gripper_tfm', 'base_footprint')
+        # self.testTransforms ([gpTfm], ['gripper_tfm'], ['base_footprint'])
         
         arm.goto_pose_matrix(gpTfm, 'base_footprint', 'end_effector')
         self.join_all()
@@ -199,7 +199,7 @@ class SutureActionsPR2 (PlannerPR2):
         # gpTfm = gpTfm.dot(corrRot)
         
         # For testing the transforms:
-        # self.testTransforms (gpTfm, 'gripper_end_tfm', 'base_footprint')
+        # self.testTransforms ([gpTfm], ['gripper_end_tfm'], ['base_footprint'])
         
         # arm.goto_pose_matrix(gpTfm, 'base_footprint', 'end_effector')
         # self.join_all()
@@ -224,6 +224,8 @@ class SutureActionsPR2 (PlannerPR2):
         gripper = {1:self.rgrip, 2:self.lgrip}[index]
         arm = {1:self.rarm, 2:self.larm}[index]
         moveInDir = {1:'l', 2:'r'}[index]
+        
+        self.enableSponge(False)
         
         rospy.loginfo("Going to the start position for picking up the flap.")
         
@@ -309,7 +311,7 @@ class SutureActionsPR2 (PlannerPR2):
         WfmNTip[0:3,3] = self.camera_transform.dot(pt+[1])[:-1]
 
         # For testing the transforms:
-        # self.testTransforms (WfmNTip, 'needle_tip_tfm', 'base_footprint')
+        # self.testTransforms ([WfmNTip], ['needle_tip_tfm'], ['base_footprint'])
 
         return WfmNTip
     
@@ -324,8 +326,10 @@ class SutureActionsPR2 (PlannerPR2):
         
         Function to make the PR2 pierce the hole specified by index.
         If pi/4 works, stick with it (maybe not)
-        """ 
+        """
+        self.enableSponge(True) 
         self.update_rave()
+        
         holeTfm = self.findHoleTransform(index)
         if holeTfm is None:
             rospy.logerr("Cannot find hole Transform for the index")
@@ -334,8 +338,8 @@ class SutureActionsPR2 (PlannerPR2):
         arm = {1:self.larm, 2:self.rarm}[index]
         # flip = {1:1, 2:-1}[index]
         
-        # Openrave needle
-        self.grabNeedle()
+        # Openrave needle. Assuming for now that we're working only with left hand
+        self.grabNeedle()#('l',2)
         
         EEfmNTip = self.getGripperFromNeedleTipTransform()
         if EEfmNTip is None:
@@ -352,17 +356,17 @@ class SutureActionsPR2 (PlannerPR2):
         gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]
         
         # For testing the transforms:
-        # self.testTransforms (gpTfm, 'new_needle', 'base_footprint')
+        # self.testTransforms ([gpTfm], ['new_needle'], ['base_footprint'])
         
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
         self.join_all()
-        rospy.sleep(10)
+        rospy.sleep(8)
         
         arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
         self.join_all()
         rospy.sleep(7)
         
-        return True
+        return gpTfm
     
     # Decided to do everything in this function in order to be able to plan entire
     # path and see if there is an IKFail
@@ -372,6 +376,7 @@ class SutureActionsPR2 (PlannerPR2):
         This function checks a bunch of viable positions and chooses the
         one which has the needle closest to the normal.
         """
+        self.enableSponge(True)
         arm = {1:self.larm, 2:self.rarm}[index]
         # flip = {1:1, 2:-1}[index]
         self.update_rave()
@@ -430,7 +435,7 @@ class SutureActionsPR2 (PlannerPR2):
                 else:
                     pass
         
-        # self.testTransforms(gpTfm, 'pierce_frame', 'base_footprint')
+        # self.testTransforms([gpTfm], ['pierce_frame'], ['base_footprint'])
         
         # Now that PR2 is ready, ask it to pierce the flap 
         # (and the planner has returned something feasible)
@@ -438,11 +443,11 @@ class SutureActionsPR2 (PlannerPR2):
         # Last saved value of gpTfm
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
         self.join_all()
-        rospy.sleep(12)
+        rospy.sleep(8)
         # Should work since there was no IKFail
-        # arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
-        # self.join_all()
-        # rospy.sleep(7)
+        arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
+        self.join_all()
+        rospy.sleep(7)
         
     def runThrough (self, index, dist=0.05):
         """
@@ -450,7 +455,7 @@ class SutureActionsPR2 (PlannerPR2):
         Distance refers to the distance from the hole to pick up the flap.
         """
         self.pickUpFlap(index, dist)
-        self.pierceHole(index)
+        self.pierceHole2(index)
         
         
     def testNeedleTfm (self):
@@ -459,22 +464,31 @@ class SutureActionsPR2 (PlannerPR2):
         """
         self.update_rave()
         sTfm = self.needleTipTransform()
-        self.testTransforms (sTfm, 'needle_tip', 'base_footprint')
+        self.testTransforms ([sTfm], ['needle_tip'], ['base_footprint'])
         
-    def testTransforms (self, tfm, child_frame, parent_frame):
+    def testTransforms (self, tfms, child_frames, parent_frames, time = 25):
         """
         Basic code to test transforms. Visualize on RViz or something.
         """
         br = tf.TransformBroadcaster()
         rate = rospy.Rate(0.2)
-        (trans, rot) = conv.hmat_to_trans_rot(tfm)
         
-        while True:
-            br.sendTransform(trans, rot,
-                             rospy.Time.now(),
-                             child_frame,
-                             parent_frame)
-            rate.sleep()
+        initTime  = rospy.Time.now()
+        totTime = rospy.Duration(time)
+        
+        if not time:
+            foreverCheck = True
+        else:
+            foreverCheck = False
+        
+        while foreverCheck or (rospy.Time.now() - initTime < totTime):
+            for tfm, child_frame, parent_frame in zip(tfms, child_frames,parent_frames):
+                (trans, rot) = conv.hmat_to_trans_rot(tfm)
+                br.sendTransform(trans, rot,
+                                 rospy.Time.now(),
+                                 child_frame,
+                                 parent_frame)
+                rate.sleep()
         
 
 def waitAndClose(t):
