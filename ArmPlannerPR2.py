@@ -123,11 +123,16 @@ class PlannerPR2 (PR2):
         PR2.__init__(self)
         self.rarm = PlannerArm(self,'r')
         self.larm = PlannerArm(self,'l')
+        
         # In case needle is not added
         self.sneedle = None
         self.sneedle_radius = 0
         self.sneedle_pose = 0
         self.grabbingArm = None
+        
+        # In case sponge is not added (supporting sponge)
+        self.sponge = None
+        self.sponge_enabled = False
         
         if initPos is not None:
             try:
@@ -136,8 +141,8 @@ class PlannerPR2 (PR2):
                 rospy.logwarn ("Cannot go to pose " + str(initPos))
                 
         self.addTableToRave()
+        self.addSpongeToRave()
         self.addNeedleToRave()
-        
         
     def gotoArmPosture (self, pos):
         """
@@ -160,6 +165,39 @@ class PlannerPR2 (PR2):
             body.SetName('table')
             body.InitFromBoxes(np.array([tablePos + tableHalfExtents]),True)
             self.env.AddKinBody(body,True)
+            
+    def addSpongeToRave (self):
+        """
+        Adds a sponge to account for the supporting sponge of the foam block.
+        """
+        spongePos = [0.5,0,0.8]
+        spongeHalfExtents = [0.25,0.3,0.03]
+        
+        with self.env:
+            self.sponge = opr.RaveCreateKinBody(self.env,'')
+            self.sponge.SetName('table')
+            self.sponge.InitFromBoxes(np.array([spongePos + spongeHalfExtents]),True)
+            self.env.AddKinBody(self.sponge,True)
+        
+        self.enableSponge(False)    
+        
+    def enableSponge (self, enable):
+        """
+        enable -> True/False
+        Enables or disables sponge in the environment.
+        Consider when motion planning needs to account for sponge collision.
+        """
+        if self.sponge is None:
+            self.sponge_enabled = False
+            return
+        if enable:
+            self.sponge_enabled = True
+            self.sponge.Enable(True)
+            rospy.loginfo('Supporting sponge enabled for collision checking.')
+        else:
+            self.sponge_enabled = False
+            self.sponge.Enable(False)
+            rospy.loginfo('Supporting sponge disabled for collision checking.')
 
     def addNeedleToRave (self):
         """
