@@ -294,7 +294,7 @@ class SutureActionsPR2 (PlannerPR2):
             return
         #When tested:
         try:
-            self.moveGripperToPickupEndPos(index)
+            self.moveGripperToPickupEndPos()
         except IKFail:
             rospy.logerr("Unable to move to final position. IK Failed.")
             self.init_index = 0
@@ -469,16 +469,37 @@ class SutureActionsPR2 (PlannerPR2):
         
         # Now that PR2 is ready, ask it to pierce the flap 
         # (and the planner has returned something feasible)
-        
-        # Store initial pierce point
-        self.update_rave()
-        self.init_holePt = self.needleTipTransform()[0:3,3]
+
         # Last saved value of gpTfm
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
         self.join_all()
         rospy.sleep(8)
+        
+        # Store initial pierce point
+        self.update_rave()
+        self.init_holePt = self.needleTipTransform()[0:3,3]
+        
         # Should work since there was no IKFail
         arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
+        self.join_all()
+        rospy.sleep(7)
+        
+    def releaseAfterPierce (self):
+        """
+        Releases grip on flap after pierce. Moves arm away for vision of second hole.
+        """
+        if self.init_index == 0:
+            rospy.logwarn("Not in position to release. Or self.init_index incorrectly set. Please call the function pickUpFlap or runThrough instead.")
+            return
+        
+        gripper = {1:self.rgrip, 2:self.lgrip}[self.init_index]
+        arm     = {1:self.rarm, 2:self.larm}[self.init_index]
+        
+        gripper.open()
+        self.join_all()
+        rospy.sleep(2)
+        
+        arm.goto_posture('side')
         self.join_all()
         rospy.sleep(7)
         
@@ -495,10 +516,10 @@ class SutureActionsPR2 (PlannerPR2):
         can pierce the exit point if it continues in a circle.
         """
         self.update_rave()
-        newIndex      =  {1:2, 2:1}[self.init_index]
-        holeTfm2      =  self.getHoleNormal(newIndex)
-        holePt        =  holeTfm2[0:3,3]
-        currNeedleTfm =  self.needleTipTransform()
+        newIndex           =  {1:2, 2:1}[self.init_index]
+        holePtCam, _       =  self.getHoleNormal(newIndex)
+        holePt             =  self.camera_transform.dot(holePtCam+[1])[:-1]
+        currNeedleTfm      =  self.needleTipTransform()
         # Step 1: Rotation about z-axis
         
         # i)    Calculate angle to rotate about
@@ -565,7 +586,28 @@ class SutureActionsPR2 (PlannerPR2):
         ind1, ind2 = [1,1,2,2], [1,2,1,2]
         rotX[ind1,ind2] = np.array([np.cos(thetaX), -1*np.sin(thetaX), np.sin(thetaX), np.cos(thetaX)])
         
+        print 'For finding rotZ:'
+        print 'a1 = ', a1, ' and a2 = ', a2
+        print 'a = ', a, ' and b = ', b
+        print 'phi = ', phi, ' and thetaZ = ', thetaZ
+        print 'Distance between holes = ', nla.norm(v,2)
+        print
+        print 'For finding rotX:'
+        print 'initAng = ', initAng
+        print 'finAng = ', finAng
+        print 'thetaX = ', thetaX/np.pi*180
+        print
+        print 'Transforms:'
+        print 'toOriginTfm =\n', toOriginTfm
+        print 'rotZ =\n', rotZ
+        print 'fromOriginTfm =\n', fromOriginTfm
+        print 'firstRotTfm =\n', firstRotTfm
+        print 'midNeedleTfm =\n', midNeedleTfm
+        print 'rotX =\n', rotX
+        
         finalNeedleTfm = firstRotTfm.dot(currNeedleTfm.dot(rotX))
+        
+        print finalNeedleTfm
               
         testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'])
         
@@ -578,7 +620,10 @@ class SutureActionsPR2 (PlannerPR2):
         if self.init_index == 0:
             return
         self.pierceHole2()
-        self.reorientAfterPiercing()
+        raw_input('Hit return when done piercing and ready to release.')
+        self.releaseAfterPierce()
+        
+        # self.reorientAfterPiercing()
         
         
     def testNeedleTfm (self):
