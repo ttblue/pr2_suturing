@@ -126,7 +126,7 @@ class PlannerPR2 (PR2):
         
         # In case needle is not added
         self.sneedle = None
-        self.sneedle_radius = 0
+        self.sneedle_radius = 0.112
         self.sneedle_pose = 0
         self.grabbingArm = None
         
@@ -210,7 +210,6 @@ class PlannerPR2 (PR2):
             self.env.AddKinBody(self.sneedle)
             
         self.resetNeedlePose()
-        self.sneedle_radius = 0.12
             
     def resetNeedlePose (self):
         """
