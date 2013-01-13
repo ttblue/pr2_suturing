@@ -23,9 +23,9 @@ class SutureActionsPR2 (PlannerPR2):
         self.holeService = rospy.ServiceProxy('getHoleNormal', PointDir)
         
         self.camera_frame = '/camera_rgb_optical_frame'
-        # basefootprintFromCamera, assuming transform doesn't change. If it does, need to do this often.
         self.tf_listener.waitForTransform("/base_footprint", self.camera_frame, rospy.Time(), rospy.Duration(10.0))
         (trans, rot) = self.tf_listener.lookupTransform('/base_footprint',self.camera_frame,rospy.Time(0))
+        # basefootprintFromCamera, assuming transform doesn't change. If it does, need to do this often.
         self.camera_transform = conv.trans_rot_to_hmat(trans, rot);
 
         # Initial index of cut picked up. Rest of procedure would be done taking this into account.
@@ -46,16 +46,21 @@ class SutureActionsPR2 (PlannerPR2):
         # How much to move in to pick up flap
         self.cut_moveIn = 0.05
         # How much to move up after picking up the flap
-        self.cut_moveUpEnd = 0.09
+        self.cut_moveUpEnd = 0.045
         # How much to move in after picking up flap 
         self.cut_moveInEnd = 0.015
         
         # Distance to move towards hole from start position to pierce
         self.hole_moveToward = 0.025
-        # Radius to move in circle to pierce cut
+        # Angle to move in circle to pierce cut
         self.hole_finAng = np.pi/3
-        # The initial hole pierce point. This is assumed to be a point on the needle during the pierce.
+        # Angle to reverse in circle after piercing cut
+        self.hole_returnAng = -np.pi/7
+
+        # The initial hole pierce point. This is assumed to be a point on the needle during the pierce.        
         self.init_holePt = np.array([0,0,0])
+        # The final hole exit point. 
+        self.final_holePt = np.array([0,0,0])
         
     # Point would need to be midpoint    
     def getCutLine(self, index):
@@ -378,16 +383,18 @@ class SutureActionsPR2 (PlannerPR2):
         
         gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]
         
-        # Store initial pierce point
-        self.update_rave()
-        self.init_holePt = self.needleTipTransform()[0:3,3]
-        
         # For testing the transforms:
         # testTransforms ([gpTfm], ['new_needle'], ['base_footprint'])
         
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
         self.join_all()
         rospy.sleep(8)
+        
+        # Store initial pierce point
+        self.update_rave()
+        self.init_holePt = self.needleTipTransform()[0:3,3]
+        
+        self.enableSponge(False)
         
         arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
         self.join_all()
@@ -441,6 +448,7 @@ class SutureActionsPR2 (PlannerPR2):
             try:
                 # Need to update rave every time. Actually don't but might as well.
                 self.update_rave()
+                self.enableSponge(True)
                 
                 rotX = np.eye(4)
                 ind1, ind2 = [1,1,2,2], [1,2,1,2]
@@ -450,6 +458,8 @@ class SutureActionsPR2 (PlannerPR2):
                 gpTfm[0:3,3] += self.hole_moveToward*holeTfm.dot(rotX)[0:3,2]        
                 
                 arm.goto_pose_matrix_rave(gpTfm, 'base_footprint', 'end_effector')
+                
+                self.enableSponge(False)
                 
                 circleTraj = arm.planner.circleAroundRadius (d, t, self.sneedle_radius, self.hole_finAng)
                 if not circleTraj:
@@ -469,6 +479,7 @@ class SutureActionsPR2 (PlannerPR2):
         
         # Now that PR2 is ready, ask it to pierce the flap 
         # (and the planner has returned something feasible)
+        self.enableSponge(True)
 
         # Last saved value of gpTfm
         arm.goto_pose_matrix (gpTfm, 'base_footprint', 'end_effector')
@@ -478,6 +489,8 @@ class SutureActionsPR2 (PlannerPR2):
         # Store initial pierce point
         self.update_rave()
         self.init_holePt = self.needleTipTransform()[0:3,3]
+        
+        self.enableSponge(False)
         
         # Should work since there was no IKFail
         arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_finAng)
@@ -493,13 +506,17 @@ class SutureActionsPR2 (PlannerPR2):
             return
         
         gripper = {1:self.rgrip, 2:self.lgrip}[self.init_index]
-        arm     = {1:self.rarm, 2:self.larm}[self.init_index]
+        cutArm, holeArm = {1: (self.rarm,self.larm), 2:(self.larm, self.larm)}[self.init_index]
+        
+        holeArm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.hole_returnAng)
+        self.join_all()
+        rospy.sleep(5)
         
         gripper.open()
         self.join_all()
         rospy.sleep(2)
         
-        arm.goto_posture('side')
+        cutArm.goto_posture('side')
         self.join_all()
         rospy.sleep(7)
         
@@ -518,14 +535,16 @@ class SutureActionsPR2 (PlannerPR2):
         self.update_rave()
         newIndex           =  {1:2, 2:1}[self.init_index]
         holePtCam, _       =  self.getHoleNormal(newIndex)
-        holePt             =  self.camera_transform.dot(holePtCam+[1])[:-1]
+        self.final_holePt  =  self.camera_transform.dot(holePtCam+[1])[:-1]
         currNeedleTfm      =  self.needleTipTransform()
+        
+        # """
         # Step 1: Rotation about z-axis
         
         # i)    Calculate angle to rotate about
         #       Do this using the formula you derived. Take care of the signs of theta and phi.
         # Vector from first hole to second
-        v = holePt - self.init_holePt
+        v = self.final_holePt - self.init_holePt
         # Current x basis vector in needle frame (perpendicular to needle plane)
         x = currNeedleTfm[0:3,0]
         # Values to make calculation easier to find angle to rotate
@@ -549,18 +568,17 @@ class SutureActionsPR2 (PlannerPR2):
         
         # ii)   Translate to Origin
         toOriginTfm = np.eye(4)
-        toOriginTfm[0:3,3] -= np.unwrap(holePt)
+        toOriginTfm[0:3,3] -= np.unwrap(self.init_holePt)
         # iii)  Rotate about z
         rotZ = np.eye(4)
         ind1, ind2 = [0,0,1,1], [0,1,0,1]
         rotZ[ind1,ind2] = np.array([np.cos(thetaZ), -1*np.sin(thetaZ), np.sin(thetaZ), np.cos(thetaZ)])
         # iv)   Translate back
         fromOriginTfm = np.eye(4)
-        fromOriginTfm[0:3,3] += np.unwrap(holePt)
-        
+        fromOriginTfm[0:3,3] += np.unwrap(self.init_holePt)
         # First rotation about z
         firstRotTfm = fromOriginTfm.dot(rotZ.dot(toOriginTfm))
-         
+        # """
         # Step 2: Rotation about x-axis
         
         # i)    Find radius to be a distance of self.sneedle_radius along the y-direction of 
@@ -609,9 +627,59 @@ class SutureActionsPR2 (PlannerPR2):
         
         print finalNeedleTfm
               
-        testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'])
+        # testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'])
         
-    def runThrough (self, index, dist=0.05):
+        #return finalNeedleTfm
+    
+        arm = {1:self.larm, 2:self.rarm}[self.init_index]
+        EEfmN = self.getGripperFromNeedleTipTransform()
+        finalGpTfm = finalNeedleTfm.dot(nla.inv(EEfmN))
+        arm.goto_pose_matrix (finalGpTfm, 'base_footprint', 'end_effector')
+        self.join_all()
+        rospy.sleep(2)
+        
+    
+    def moveToSecondPierceReadyPose (self):
+        """
+        Moves the appropriate gripper to the exit point of the second piercing.
+        It moves in such a way that it can re-grasp the needle once done.
+        Assumes re-orientation is fairly accurate.
+        """
+        if self.init_index == 0:
+            rospy.logwarn("Unable to move to exit point. Or self.init_index incorrectly set. Please call the function pickUpFlap or runThrough instead.")
+            return
+        
+        self.update_rave()
+        self.enableSponge(False)
+        arm, gripper = {1:(self.rarm, self.rgrip), 2:(self.larm, self.lgrip)}[self.init_index]
+        
+        # You want the gripper to point towards the first hole from the second hole.
+        dVecZ = self.init_holePt - self.final_holePt
+        dVecZ = dVecZ/nla.norm(dVecZ, 2)
+        # Gripper should be open its side pointing up (or down). This vector is basically base_footprint's z vector.
+        dVecX = -np.array([0,0,1])
+        dVecY = np.cross(dVecZ, dVecX)
+        
+        gpTfm = np.eye(4)
+        gpTfm[0:3,0] = np.unwrap(dVecX)
+        gpTfm[0:3,1] = np.unwrap(dVecY)
+        gpTfm[0:3,2] = np.unwrap(dVecZ)
+        gpTfm[0:3,3] = np.unwrap(self.final_holePt + 0.02*dVecZ + 0.04*dVecX)
+        
+        rotX = np.eye(4)
+        ind1, ind2 = [1,1,2,2], [1,2,1,2]
+        thetaY = np.pi/8
+        rotX[ind1,ind2] = np.array([np.cos(thetaY), -1*np.sin(thetaY), np.sin(thetaY), np.cos(thetaY)])
+        
+        gripper.open()
+        self.join_all()
+        rospy.sleep(1.5)
+        
+        arm.goto_pose_matrix(gpTfm, 'base_footprint', 'end_effector')
+        self.join_all()
+        rospy.sleep(5)
+        
+    def runThrough (self, index, dist=0.025):
         """
         Picks up indexed flap and pierces indexed cut.
         Distance refers to the distance from the hole to pick up the flap.
@@ -622,9 +690,21 @@ class SutureActionsPR2 (PlannerPR2):
         self.pierceHole2()
         raw_input('Hit return when done piercing and ready to release.')
         self.releaseAfterPierce()
+        raw_input('Hit return when done releasing and ready to re-orient.')
+        self.reorientAfterPiercing()
         
-        # self.reorientAfterPiercing()
-        
+    def resetPosition(self):
+        self.lgrip.open()
+        self.rgrip.open()
+        self.larm.goto_posture('side')
+        self.join_all()
+        rospy.sleep(1)
+        self.rarm.goto_posture('side')
+        rospy.sleep(3)
+        self.init_index = 0
+        self.init_holePt = np.array([0,0,0])
+        self.enableSponge(False)
+        self.releaseNeedle()
         
     def testNeedleTfm (self):
         """
@@ -633,6 +713,7 @@ class SutureActionsPR2 (PlannerPR2):
         self.update_rave()
         sTfm = self.needleTipTransform()
         testTransforms ([sTfm], ['needle_tip'], ['base_footprint'])
+        
         
 def testTransforms (tfms, child_frames, parent_frames, time = 25):
     """
