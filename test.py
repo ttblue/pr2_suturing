@@ -315,14 +315,14 @@ class SutureActionsPR2 (PlannerPR2):
         # Flip orientation according to hole        
         flip = {1:1, 2:-1}[index]
 
-        
         dVecRot = dVecCam + [0]
         # dVecZ points in the opposite direction of the normal
         dVecZ = -1*self.camera_transform.dot(dVecRot)[:-1]
+        dVecZ = dVecZ/nla.norm(dVecZ, 2)
         
         # Since all transforms are w.r.t base_footprint, its transform is just the identity
         dVecX_bfp = np.array([1,0,0])
-        dVecXz_bfp = (dVecX_bfp.dot(dVecZ)/nla.norm(dVecZ, 2))*dVecZ
+        dVecXz_bfp = (dVecX_bfp.dot(dVecZ))*dVecZ
         dVecXx_bfp = dVecX_bfp - dVecXz_bfp
         # dVecX points in the closest direction to the x axis of the base_footprint frame (identity) 
         dVecX = flip*dVecXx_bfp/nla.norm(dVecXx_bfp,2)
@@ -534,7 +534,20 @@ class SutureActionsPR2 (PlannerPR2):
         """
         self.update_rave()
         newIndex           =  {1:2, 2:1}[self.init_index]
-        holePtCam, _       =  self.getHoleNormal(newIndex)
+        
+        # In case the hole is not immediately visible
+        attempts            = 10
+        while attempts > 0:
+            holePtCam, _   =  self.getHoleNormal(newIndex)
+            if holePtCam is None:
+                attempts  -= 1
+                rospy.sleep(0.2)
+            else:
+                break
+        if attempts == 0:
+            rospy.logerr("Cannot find the next hole to pierce.")
+            return
+        
         self.final_holePt  =  self.camera_transform.dot(holePtCam+[1])[:-1]
         currNeedleTfm      =  self.needleTipTransform()
         
@@ -638,6 +651,103 @@ class SutureActionsPR2 (PlannerPR2):
         self.join_all()
         rospy.sleep(2)
         
+        
+    def reorientAfterPiercing2 (self):
+        """
+        Calculates the current needle center and the target needle center.
+        Rotates the needle about the pierce point in order to make the center
+        of the needle go to the target center.
+        Probably a better way of doing this than reorientAfterPiercing1. 
+        Probably simpler too.
+        """
+        self.update_rave()
+        newIndex           =  {1:2, 2:1}[self.init_index]
+        
+        # In case the hole is not immediately visible
+        attempts           = 10
+        while attempts > 0:
+            holePtCam, _   =  self.getHoleNormal(newIndex)
+            if holePtCam is None:
+                attempts  -= 1
+                rospy.sleep(0.2)
+            else:
+                break
+        if attempts == 0:
+            rospy.logerr("Cannot find the next hole to pierce.")
+            return
+        
+        self.final_holePt  =  self.camera_transform.dot(holePtCam+[1])[:-1]
+        
+        if self.sneedle_pose == 0:
+            rospy.logerr("Needle not grabbed.")
+            return    
+        currNeedleTfm      =  self.needleTipTransform()
+        
+        v = self.final_holePt - self.init_holePt
+        # Calculating the best possible direction for the x vector.
+        v_len = nla.norm(v, 2)
+        v_normalized = v/v_len
+        # The line from the center meets the line segment between first and second pierce point
+        # normally at this point.
+        v_center = self.init_holePt + v/2
+        
+        # Check if piercing is realistically possible. 1.8 is just 
+        # a marginally arbitrary threshold (2 would mean diameter)
+        if v_len > 1.8*self.sneedle_radius:
+            rospy.logerr('Distance between holes too large: %f' %v_len)
+            return
+        
+        # Finding the initial center of the suturing needle
+        y_n = currNeedleTfm[0:3,1]
+        initCenter   = currNeedleTfm[0:3,3] + self.sneedle_radius*y_n
+        initCenterVec = initCenter - self.init_holePt
+        
+        # Since all transforms are w.r.t. the base_footprint frame.
+        x_bf = np.array([1,0,0])
+        x_v = x_bf.dot(v_normalized)*v_normalized
+        x_x = x_bf - x_v
+        x = x_x/nla.norm(x_x,2)
+        
+        # Vector from v_center in the direction of the final needle center 
+        radVec = np.cross(v_normalized, x)
+        radVec = radVec/nla.norm(radVec,2)
+        # Distance of the center from the mid-point of the chord
+        radDist = np.sqrt(self.sneedle_radius**2 - (v_len/2)**2)
+        
+        finalCenter    = v_center + radVec*radDist
+        finalCenterVec = finalCenter - self.init_holePt
+        
+        rotAng         = np.arccos(initCenterVec.dot(finalCenterVec)/(nla.norm(initCenterVec)*nla.norm(finalCenterVec)))
+        rotVec         = np.cross(initCenterVec, finalCenterVec)
+        ru, rv, rw     = rotVec[0], rotVec[1], rotVec[2]         
+        
+        rotMat         = np.array([[ru**2+(1-ru**2)*np.cos(rotAng), ru*rv*(1-np.cos(rotAng))-rw*np.sin(rotAng), ru*rw*(1-np.cos(rotAng))+rv*np.sin(rotAng), 0],
+                                   [ru*rv*(1-np.cos(rotAng))+rw*np.sin(rotAng), rv**2+(1-rv**2)*np.cos(rotAng), rv*rw*(1-np.cos(rotAng))-ru*np.sin(rotAng), 0],
+                                   [ru*rw*(1-np.cos(rotAng))-rv*np.sin(rotAng), rv*rw*(1-np.cos(rotAng))-ru*np.sin(rotAng), rw**2+(1-rw**2)*np.cos(rotAng), 0],
+                                   [0                                         , 0                                         , 0                             , 1]])
+        
+        # Translate to Origin
+        toOriginTfm = np.eye(4)
+        toOriginTfm[0:3,3] -= np.unwrap(self.init_holePt)
+        # Translate back
+        fromOriginTfm = np.eye(4)
+        fromOriginTfm[0:3,3] += np.unwrap(self.init_holePt)
+        
+        reorientTfm = fromOriginTfm.dot(rotMat.dot(toOriginTfm))
+        
+        finalNeedleTfm = reorientTfm.dot(currNeedleTfm)
+        
+        print finalNeedleTfm
+        
+        testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'], 30)
+        """
+        arm = {1:self.larm, 2:self.rarm}[self.init_index]
+        EEfmN = self.getGripperFromNeedleTipTransform()
+        finalGpTfm = finalNeedleTfm.dot(nla.inv(EEfmN))
+        arm.goto_pose_matrix (finalGpTfm, 'base_footprint', 'end_effector')
+        self.join_all()
+        rospy.sleep(2)
+        """
     
     def moveToSecondPierceReadyPose (self):
         """
@@ -691,7 +801,7 @@ class SutureActionsPR2 (PlannerPR2):
         raw_input('Hit return when done piercing and ready to release.')
         self.releaseAfterPierce()
         raw_input('Hit return when done releasing and ready to re-orient.')
-        self.reorientAfterPiercing()
+        self.reorientAfterPiercing2()
         
     def resetPosition(self):
         self.lgrip.open()
@@ -703,6 +813,7 @@ class SutureActionsPR2 (PlannerPR2):
         rospy.sleep(3)
         self.init_index = 0
         self.init_holePt = np.array([0,0,0])
+        self.final_holePt = np.array([0,0,0])
         self.enableSponge(False)
         self.releaseNeedle()
         
