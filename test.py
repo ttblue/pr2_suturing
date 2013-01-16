@@ -70,7 +70,7 @@ class SutureActionsPR2 (PlannerPR2):
         # Max effort for closing the gripper
         self.regrasp_closeMaxEffort = 80
         # Angle to move through in order to pull out the needle
-        self.regrasp_removalAng = np.pi/2
+        self.regrasp_removalAng = np.pi/1.8
         
     # Point would need to be midpoint    
     def getCutLine(self, index):
@@ -829,7 +829,7 @@ class SutureActionsPR2 (PlannerPR2):
             rospy.logwarn("Unable to regrasp needle. Or self.init_index incorrectly set. Please call the function pickUpFlap or runThrough instead.")
             return
         
-        self.enableSponge(True)
+        self.enableSponge(False)
         
         arm, gripper1, gripper2 = {1:(self.rarm, self.rgrip, self.lgrip), 2:(self.larm, self.lgrip, self.rgrip)}[self.init_index]
         flip         = {1:1, 2:-1}[self.init_index]
@@ -917,7 +917,7 @@ class SutureActionsPR2 (PlannerPR2):
         # The next few steps:
         self.moveToSecondPierceReadyPose()
         self.pierceSecondHole()
-        self.regraspAfterPiercing(-0.13)
+        self.regraspAfterSecondPierce(-0.12)
         
     def resetPosition(self):
         self.lgrip.open()
