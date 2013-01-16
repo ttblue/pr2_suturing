@@ -61,6 +61,16 @@ class SutureActionsPR2 (PlannerPR2):
         self.init_holePt = np.array([0,0,0])
         # The final hole exit point. 
         self.final_holePt = np.array([0,0,0])
+
+        # Angle to move in to pierce the second hole
+        self.secondPierce_angle = np.pi/1.9
+        
+        # Distance behind the needle the regrasping starts.
+        self.regrasp_initDist = 0.05
+        # Max effort for closing the gripper
+        self.regrasp_closeMaxEffort = 80
+        # Angle to move through in order to pull out the needle
+        self.regrasp_removalAng = np.pi/2
         
     # Point would need to be midpoint    
     def getCutLine(self, index):
@@ -178,7 +188,7 @@ class SutureActionsPR2 (PlannerPR2):
                             [ 0,0,0,1]])
         # Rotation about z axis by angle = self.cut_rotStartPos
         corrRot2 = np.array ([[1, 0                                , 0                                 , 0],
-                              [0, np.cos(flip*self.cut_rotStartPos), -np.sin(flip*self.cut_rotStartPos), 0],
+                              [0, np.cos    (flip*self.cut_rotStartPos), -np.sin(flip*self.cut_rotStartPos), 0],
                               [0, np.sin(flip*self.cut_rotStartPos), np.cos(flip*self.cut_rotStartPos) , 0],
                               [0, 0                                , 0                                 , 1]])
         gpTfm = cutTfm.dot(corrRot.dot(corrRot2))
@@ -739,15 +749,15 @@ class SutureActionsPR2 (PlannerPR2):
         
         print finalNeedleTfm
         
-        testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'], 30)
-        """
+        # testTransforms([currNeedleTfm, finalNeedleTfm], ['init_needletfm', 'final_needletfm'],['base_footprint', 'base_footprint'], 30)
+
         arm = {1:self.larm, 2:self.rarm}[self.init_index]
         EEfmN = self.getGripperFromNeedleTipTransform()
         finalGpTfm = finalNeedleTfm.dot(nla.inv(EEfmN))
         arm.goto_pose_matrix (finalGpTfm, 'base_footprint', 'end_effector')
         self.join_all()
         rospy.sleep(2)
-        """
+
     
     def moveToSecondPierceReadyPose (self):
         """
@@ -762,24 +772,31 @@ class SutureActionsPR2 (PlannerPR2):
         self.update_rave()
         self.enableSponge(False)
         arm, gripper = {1:(self.rarm, self.rgrip), 2:(self.larm, self.lgrip)}[self.init_index]
-        
+
         # You want the gripper to point towards the first hole from the second hole.
         dVecZ = self.init_holePt - self.final_holePt
         dVecZ = dVecZ/nla.norm(dVecZ, 2)
         # Gripper should be open its side pointing up (or down). This vector is basically base_footprint's z vector.
-        dVecX = -np.array([0,0,1])
+        dVecX_bf = -np.array([0,0,1])
+        dVecX_bf_z = dVecX_bf.dot(dVecZ)*dVecZ
+        dVecX = dVecX_bf - dVecX_bf_z
+        dVecX = dVecX/nla.norm(dVecX,2)
+        
         dVecY = np.cross(dVecZ, dVecX)
         
         gpTfm = np.eye(4)
         gpTfm[0:3,0] = np.unwrap(dVecX)
         gpTfm[0:3,1] = np.unwrap(dVecY)
         gpTfm[0:3,2] = np.unwrap(dVecZ)
-        gpTfm[0:3,3] = np.unwrap(self.final_holePt + 0.02*dVecZ + 0.04*dVecX)
+        gpTfm[0:3,3] = np.unwrap(self.final_holePt) # + 0.02*dVecZ + 0.02*dVecX)
         
+        # In case rotation is needed. Need to be fairly close to the table
+        """
         rotX = np.eye(4)
         ind1, ind2 = [1,1,2,2], [1,2,1,2]
         thetaY = np.pi/8
         rotX[ind1,ind2] = np.array([np.cos(thetaY), -1*np.sin(thetaY), np.sin(thetaY), np.cos(thetaY)])
+        """
         
         gripper.open()
         self.join_all()
@@ -789,19 +806,118 @@ class SutureActionsPR2 (PlannerPR2):
         self.join_all()
         rospy.sleep(5)
         
+    def pierceSecondHole (self):
+        """
+        Pierces the second hole.
+        Assumes that the needle has pierced the first hole and is in the reoriented position.
+        """
+        if self.init_index == 0:
+            rospy.logwarn("Unable to pierce second hole. Or self.init_index incorrectly set. Please call the function pickUpFlap or runThrough instead.")
+            return
+        
+        arm = {1:self.larm, 2:self.rarm}[self.init_index]
+        arm.circleAroundRadius (self.sneedle_pose, self.sneedle_radius, self.secondPierce_angle)
+        self.join_all()
+        rospy.sleep(5)
+        
+    def regraspAfterSecondPierce (self, theta):
+        """
+        Moves the gripper to a specified angle along the suturing needle below the tip.
+        Grasps the needle and then pulls it out with a circular motion.
+        """
+        if self.init_index == 0:
+            rospy.logwarn("Unable to regrasp needle. Or self.init_index incorrectly set. Please call the function pickUpFlap or runThrough instead.")
+            return
+        
+        self.enableSponge(True)
+        
+        arm, gripper1, gripper2 = {1:(self.rarm, self.rgrip, self.lgrip), 2:(self.larm, self.lgrip, self.rgrip)}[self.init_index]
+        flip         = {1:1, 2:-1}[self.init_index]
+        
+        
+        needleTipTfm = self.needleTipTransform()
+        
+        x_n = needleTipTfm[0:3,0]
+        y_n = needleTipTfm[0:3,1]
+        needleCenter = needleTipTfm[0:3,3] + self.sneedle_radius*y_n
+        
+        # Translate to Origin
+        toOriginTfm = np.eye(4)
+        toOriginTfm[0:3,3] -= np.unwrap(needleCenter)
+        # Rotate by theta about the x-axis of the needle
+        ru, rv, rw     = x_n[0], x_n[1], x_n[2]
+        rotMat         = np.array([[ru**2+(1-ru**2)*np.cos(theta), ru*rv*(1-np.cos(theta))-rw*np.sin(theta), ru*rw*(1-np.cos(theta))+rv*np.sin(theta), 0],
+                                   [ru*rv*(1-np.cos(theta))+rw*np.sin(theta), rv**2+(1-rv**2)*np.cos(theta), rv*rw*(1-np.cos(theta))-ru*np.sin(theta), 0],
+                                   [ru*rw*(1-np.cos(theta))-rv*np.sin(theta), rv*rw*(1-np.cos(theta))-ru*np.sin(theta), rw**2+(1-rw**2)*np.cos(theta), 0],
+                                   [0                                       , 0                                       , 0                            , 1]])
+        # Translate back
+        fromOriginTfm = np.eye(4)
+        fromOriginTfm[0:3,3] += np.unwrap(needleCenter)
+        
+        graspTfm = fromOriginTfm.dot(rotMat.dot(toOriginTfm))
+        
+        # Correction matrix to make the gripper hold the needle in pose 1
+        corrRot = np.eye(4)
+        corrRot[[0,2],[0,0]] = np.array([0,1])
+        corrRot[[0,2],[2,2]] = flip*np.array([1,0])
+        corrRot[1,1]         = -flip
+        
+        gpTfm = graspTfm.dot(needleTipTfm.dot(corrRot))
+        
+        # Move a small distance back along the world's x-axis to regrasp the needle
+        gpTfm[0:3,3] -= self.regrasp_initDist*np.array([1,0,0])
+        
+        # Initially move to side position and open gripper
+        arm.goto_posture('side')
+        gripper1.open()
+        self.join_all()
+        rospy.sleep(8)
+        
+        # Go to the starting position for regrasping
+        arm.goto_pose_matrix(gpTfm, 'base_footprint', 'end_effector')
+        self.join_all()
+        rospy.sleep(8)
+        
+        # Move forward to regrasp
+        arm.goInWorldDirection('f', self.regrasp_initDist + 0.02)
+        self.join_all()
+        rospy.sleep(3)
+        
+        # Grip the needle with one gripper
+        gripper1.close(self.regrasp_closeMaxEffort)
+        self.join_all()
+        rospy.sleep(2)
+        
+        # Release the needle with the other gripper
+        gripper2.open()
+        self.join_all()
+        rospy.sleep(2)
+        
+        # Pull out the needle by moving in a circle in the negative direction of pose 1
+        arm.circleAroundRadius(1, self.sneedle_radius, -self.regrasp_removalAng)
+        self.join_all()
+        rospy.sleep(2)
+        
+        # Now do whatever needs to be done after moving the needle out in circle.
+        # Maybe move it up 10 cm.
+        
     def runThrough (self, index, dist=0.025):
         """
-        Picks up indexed flap and pierces indexed cut.
+        Runs through the entire procedure.
         Distance refers to the distance from the hole to pick up the flap.
         """
         self.pickUpFlap(index, dist)
         if self.init_index == 0:
             return
         self.pierceHole2()
-        raw_input('Hit return when done piercing and ready to release.')
+        # raw_input('Hit return when done piercing and ready to release.')
         self.releaseAfterPierce()
-        raw_input('Hit return when done releasing and ready to re-orient.')
+        # raw_input('Hit return when done releasing and ready to re-orient.')
         self.reorientAfterPiercing2()
+        # The next few steps:
+        self.moveToSecondPierceReadyPose()
+        self.pierceSecondHole()
+        self.regraspAfterPiercing(-0.13)
         
     def resetPosition(self):
         self.lgrip.open()
