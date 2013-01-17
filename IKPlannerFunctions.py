@@ -139,7 +139,7 @@ class IKInterpolationPlanner(object):
             currVec = initOrigin + float(step)/steps*endOffset
             
             newTfm = initTransform.copy()
-            newTfm[0:3,3] = np.unwrap(currVec)
+            newTfm[0:3,3] = currVec
             
             transforms.append(newTfm)
             
@@ -190,7 +190,7 @@ class IKInterpolationPlanner(object):
             currVec = initOrigin + endOffset*(float(step)/steps)
             
             newTfm = initTransform.copy()
-            newTfm[0:3,3] = np.unwrap(currVec)
+            newTfm[0:3,3] = currVec
             
             transforms.append(newTfm)
             
@@ -211,7 +211,7 @@ class IKInterpolationPlanner(object):
         
         initTfm = np.eye(4)
         initOrigin = d*rad*np.array([0,1,0])
-        initTfm[0:3,3] = np.unwrap(initOrigin)
+        initTfm[0:3,3] = initOrigin
         transforms = []
         
         for step in range(steps+1):
@@ -222,8 +222,7 @@ class IKInterpolationPlanner(object):
             rotMat[0,1] = -np.sin(t*ang)
             rotMat[1,0] = np.sin(t*ang)
             rotMat[1,1] = np.cos(t*ang)
-            rotMat[0:3,3] = np.unwrap(-1*initOrigin)
-            print rotMat
+            rotMat[0:3,3] = -1*initOrigin
             
             transforms.append(WorldFromEETfm.dot(rotMat.dot(initTfm)))
             
