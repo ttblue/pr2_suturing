@@ -27,6 +27,14 @@ def rotate (theta,d='x'):
     rot[ind1,ind2] = np.array([np.cos(theta), -1*np.sin(theta), np.sin(theta), np.cos(theta)])
     sndTfm = sndTfm.dot(rot)
     snd.SetTransform(sndTfm) 
+
+
+def r_toggle():
+    pass
+
+def l_toggle():
+    pass
+
     
 if __name__ == "__main__":
     rospy.init_node("Test_Planning")
@@ -37,4 +45,4 @@ if __name__ == "__main__":
     sndTfm = p.larm.manip.GetTransform() 
     x,y,z = initVec(sndTfm)
 
-    env.SetViewer('qtcoin')
+    #env.SetViewer('qtcoin')

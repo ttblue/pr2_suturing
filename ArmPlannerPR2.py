@@ -205,7 +205,7 @@ class PlannerPR2 (PR2):
         Needle is kept at the edge of the table to start with.
         """
         with self.env:
-            self.sneedle = self.env.ReadKinBodyURI('/home/sibi/sandbox/bulletsim/data/needle/sneedle.dae')
+            self.sneedle = self.env.ReadKinBodyURI('/home/ankush/sandbox/bulletsim/data/needle/sneedle.dae')
             self.sneedle.SetName('sneedle')
             self.env.AddKinBody(self.sneedle)
             
